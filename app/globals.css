@@ -1,0 +1,160 @@
+@import "tailwindcss";
+@import "./theme.css";
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* 레이어 안에 둬야 개별 요소의 Tailwind 유틸리티(예: 프로그램으로 포커스하는 제목의 outline-none)가 우선합니다 */
+@layer base {
+  :focus-visible {
+    outline: 3px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+/* ── 공통 UI 부품 ─────────────────────────────────────────────── */
+.btn-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem; /* 44px 터치 영역 */
+  height: 2.75rem;
+  border-radius: 9999px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-float);
+  transition: background-color 0.15s, transform 0.1s;
+}
+.btn-icon:hover { background: var(--color-sand); }
+.btn-icon:active { transform: scale(0.94); }
+.btn-icon:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: background-color 0.15s, transform 0.1s, border-color 0.15s;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--color-primary); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--color-primary-strong); }
+.btn-accent { background: var(--color-accent); color: #fff; }
+.btn-accent:hover:not(:disabled) { background: var(--color-accent-strong); }
+.btn-outline { background: var(--color-surface); border: 1px solid var(--color-line); color: var(--color-ink); }
+.btn-outline:hover:not(:disabled) { background: var(--color-sand); }
+.btn-ghost { color: var(--color-ink); }
+.btn-ghost:hover:not(:disabled) { background: var(--color-sand); }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--color-sand) 25%, #f7f3ec 50%, var(--color-sand) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: var(--radius-sm);
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.rise-in { animation: rise-in 0.22s ease-out both; }
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* 시트·패널 내부 스크롤만 허용 → 지도 제스처와 충돌 방지 */
+.sheet-scroll {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── 지도 마커 ────────────────────────────────────────────────── */
+.atlas-marker {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border-radius: 9999px;
+  border: 3px solid #fff;
+  background: var(--marker-color, #444);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  font: 700 0.8125rem/1 var(--font-sans);
+  transition: box-shadow 0.15s;
+}
+.atlas-marker > .atlas-marker__inner {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.15s ease;
+}
+.atlas-marker::after { content: ""; position: absolute; inset: -6px; border-radius: 9999px; } /* 터치 영역 확장 */
+@media (max-width: 639px) {
+  .atlas-marker { width: 1.875rem; height: 1.875rem; border-width: 2px; }
+  .atlas-marker--numbered { width: 2.125rem; height: 2.125rem; font-size: 0.875rem; }
+}
+.atlas-marker:hover > .atlas-marker__inner { transform: scale(1.14); }
+.atlas-marker:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 3px; }
+.atlas-marker--numbered { width: 2.5rem; height: 2.5rem; font-size: 1rem; }
+.atlas-marker--selected { z-index: 5; box-shadow: 0 0 0 5px rgba(196, 83, 45, 0.4), 0 4px 12px rgba(0, 0, 0, 0.4); }
+.atlas-marker--selected > .atlas-marker__inner { transform: scale(1.2); }
+.atlas-user {
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 9999px;
+  background: #1d4ed8;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 7px rgba(29, 78, 216, 0.25);
+}
+
+.atlas-popup { display: flex; flex-direction: column; gap: 2px; font-family: var(--font-sans); color: var(--color-ink); }
+.atlas-popup strong { font-size: 0.875rem; }
+.atlas-popup span { font-size: 0.75rem; color: var(--color-muted); }
+.maplibregl-popup-content { border-radius: 12px; padding: 8px 12px; box-shadow: var(--shadow-float); }
+
+/* 출처 표시 컨트롤이 바텀시트 위로 올라오도록 (--sheet-inset: 시트가 지도를 가리는 높이) */
+.atlas-map .maplibregl-ctrl-bottom-right,
+.atlas-map .maplibregl-ctrl-bottom-left {
+  bottom: var(--sheet-inset, 0px);
+  transition: bottom 0.2s ease;
+}
+.atlas-map .maplibregl-ctrl-attrib { font-size: 0.6875rem; }
+
+.safe-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

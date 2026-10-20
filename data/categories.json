@@ -1,0 +1,16 @@
+{
+  "categories": [
+    { "id": "food", "labelKo": "맛집", "labelEn": "Eats", "color": "#c2410c", "icon": "utensils" },
+    { "id": "cafe", "labelKo": "카페", "labelEn": "Cafés", "color": "#a16207", "icon": "coffee" },
+    { "id": "nature", "labelKo": "자연·산책", "labelEn": "Nature & Walks", "color": "#15803d", "icon": "trees" },
+    { "id": "history", "labelKo": "역사·문화", "labelEn": "History & Culture", "color": "#7c3aed", "icon": "landmark" },
+    { "id": "landmark", "labelKo": "관광명소", "labelEn": "Landmarks", "color": "#0369a1", "icon": "camera" }
+  ],
+  "themes": [
+    { "id": "cafe-alley", "labelKo": "감성 카페·골목", "labelEn": "Cafés & Alleys" },
+    { "id": "history", "labelKo": "역사문화", "labelEn": "History & Culture" },
+    { "id": "nature-rest", "labelKo": "자연·휴식", "labelEn": "Nature & Rest" },
+    { "id": "local-food", "labelKo": "로컬 먹거리", "labelEn": "Local Eats" },
+    { "id": "landmark", "labelKo": "동네 명소", "labelEn": "Local Landmarks" }
+  ]
+}

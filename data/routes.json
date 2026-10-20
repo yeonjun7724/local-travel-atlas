@@ -1,0 +1,32 @@
+[
+  {
+    "routeId": "cafe-alley-walk",
+    "titleKo": "감성 카페와 골목 산책",
+    "titleEn": "Café Hopping & Alley Stroll",
+    "descriptionKo": "로스터리에서 시작해 벽화 골목을 지나 달빛 디저트로 마무리하는 느린 오후 코스입니다. (가상 샘플 코스)",
+    "descriptionEn": "A slow afternoon from a roastery through a mural lane to moonlit desserts. (Fictional sample route)",
+    "theme": "cafe-alley",
+    "placeIds": ["cafe-ivy", "cafe-lantern", "food-noodle-alley", "cafe-bakery-sol", "landmark-mural", "cafe-rooftop", "cafe-moon"],
+    "transportMode": "walking"
+  },
+  {
+    "routeId": "history-tour",
+    "titleKo": "역사문화 탐방 코스",
+    "titleEn": "History & Culture Tour",
+    "descriptionKo": "성문터에서 고요사까지 동네의 시간을 따라 걷고 한상 식당에서 식사하는 코스입니다. (가상 샘플 코스)",
+    "descriptionEn": "Walk through the neighborhood's past from the old gate to Goyo Temple, then dine at Hansang Table. (Fictional sample route)",
+    "theme": "history",
+    "placeIds": ["history-gate", "history-hall", "history-hanok-row", "history-museum", "history-well", "history-temple", "food-hansang"],
+    "transportMode": "walking"
+  },
+  {
+    "routeId": "nature-weekend",
+    "titleKo": "주말 자연·휴식 코스",
+    "titleEn": "Weekend Nature & Rest",
+    "descriptionKo": "맑은내 산책로에서 별보기 전망대까지 천천히 걷고 숲속 찻집에서 쉬어 가는 코스입니다. (가상 샘플 코스)",
+    "descriptionEn": "Stroll from Clearstream Walk to the Stargazing Deck and rest at a forest tea room. (Fictional sample route)",
+    "theme": "nature-rest",
+    "placeIds": ["nature-stream", "nature-pond", "nature-forest", "food-picnic", "nature-hill", "landmark-deck", "cafe-forest"],
+    "transportMode": "walking"
+  }
+]
