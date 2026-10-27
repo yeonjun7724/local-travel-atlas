@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LOCAL ATLAS</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  :root {
+    --paper: #fbf8f3; --surface: #ffffff; --sand: #f3eee6; --line: #ebe4d8; --line-strong: #ddd3c2;
+    --ink: #1d2523; --ink-2: #3a4442; --muted: #6b7573;
+    --primary: #0e5a57; --primary-soft: #e3f1ef;
+    --accent: #c4532d; --accent-strong: #a8431f; --accent-soft: #fbece5;
+    --sans: "Pretendard Variable", "Pretendard", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+    --serif: "Noto Serif KR", "Nanum Myeongjo", Georgia, serif;
+    --r-sm: 10px; --r-md: 16px; --r-lg: 24px;
+    --shadow-1: 0 1px 2px rgba(29,37,35,.05), 0 1px 1px rgba(29,37,35,.04);
+    --shadow-float: 0 2px 6px rgba(29,37,35,.06), 0 18px 48px -12px rgba(29,37,35,.22);
+    --ease: cubic-bezier(.2,.7,.2,1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 15px; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+  button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  #map { position: fixed; inset: 0; }
+
+  /* ---------- 떠 있는 패널 ---------- */
+  .panel {
+    position: fixed; top: 16px; left: 16px; bottom: 16px; width: 404px; z-index: 5;
+    display: flex; flex-direction: column;
+    background: rgba(255,255,255,.94); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4);
+    border: 1px solid rgba(255,255,255,.7); border-radius: var(--r-lg); box-shadow: var(--shadow-float); overflow: hidden;
+  }
+  .panel-top { padding: 22px 22px 14px; }
+  .brand { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .brand h1 { margin: 0; font-family: var(--serif); font-weight: 700; font-size: 19px; letter-spacing: .22em; }
+  .brand .region { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+  .brand .region svg { width: 13px; height: 13px; }
+
+  .seg { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; background: var(--sand); border-radius: 12px; padding: 4px; position: relative; }
+  .seg button { position: relative; z-index: 1; height: 38px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 6px; transition: color .2s; }
+  .seg button[aria-selected="true"] { color: var(--ink); }
+  .seg .thumb { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); background: var(--surface); border-radius: 9px; box-shadow: var(--shadow-1); transition: transform .3s var(--ease); }
+  .seg[data-tab="routes"] .thumb { transform: translateX(100%); }
+
+  .panel-body { flex: 1; overflow-y: auto; padding: 0 22px 22px; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  .panel-foot { padding: 10px 22px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; background: rgba(251,248,243,.7); }
+  .panel-foot .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-top: 6px; flex: none; }
+
+  /* ---------- 검색·필터 ---------- */
+  .search { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; color: var(--muted); transition: border-color .2s, box-shadow .2s; }
+  .search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft); }
+  .search input { flex: 1; border: 0; outline: 0; background: transparent; font: inherit; color: var(--ink); }
+  .search input::placeholder { color: #9aa3a1; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; margin: 12px -22px 0; padding: 0 22px 2px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 600; color: var(--ink-2); transition: all .2s; }
+  .chip .sw { width: 8px; height: 8px; border-radius: 50%; }
+  .chip:hover { border-color: var(--line-strong); }
+  .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .list-head { display: flex; justify-content: space-between; align-items: center; margin: 20px 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+
+  /* ---------- 장소 목록 ---------- */
+  .row { display: flex; align-items: center; gap: 14px; width: 100%; padding: 11px 10px; margin: 0 -10px; width: calc(100% + 20px); border-radius: 14px; text-align: left; transition: background .15s; }
+  .row:hover { background: var(--sand); }
+  .row.active { background: var(--primary-soft); }
+  .tile { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; flex: none; }
+  .tile svg.i { width: 20px; height: 20px; }
+  .row-main { flex: 1; min-width: 0; }
+  .row-main strong { display: block; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-main span { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .row > svg.i { color: #b4bab8; width: 16px; height: 16px; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
+
+  /* ---------- 장소 상세 ---------- */
+  .back { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); padding: 6px 0; margin-bottom: 10px; }
+  .back:hover { color: var(--ink); }
+  .hero { position: relative; height: 150px; border-radius: 18px; overflow: hidden; display: flex; align-items: flex-end; padding: 16px; color: #fff; }
+  .hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 90% at 85% 10%, rgba(255,255,255,.28), transparent 55%), repeating-linear-gradient(135deg, rgba(255,255,255,.06) 0 2px, transparent 2px 14px); }
+  .hero .big { position: absolute; right: 18px; top: 18px; opacity: .9; }
+  .hero .big svg.i { width: 44px; height: 44px; stroke-width: 1.4; }
+  .badge { position: relative; display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,.22); backdrop-filter: blur(6px); }
+  .detail h2 { font-family: var(--serif); font-size: 26px; font-weight: 700; margin: 20px 0 2px; letter-spacing: -0.02em; }
+  .detail .sub { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .detail .desc { line-height: 1.7; color: var(--ink-2); margin: 0 0 18px; }
+  .facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .facts div { background: var(--surface); padding: 12px; }
+  .facts dt { font-size: 11px; color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 4px; }
+  .facts dt svg.i { width: 12px; height: 12px; }
+  .facts dd { margin: 4px 0 0; font-size: 13.5px; font-weight: 600; }
+  .facts .wide { grid-column: 1 / -1; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+  .tags span { font-size: 12.5px; color: var(--ink-2); background: var(--sand); padding: 5px 11px; border-radius: 999px; }
+  .section-title { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; margin: 26px 0 10px; }
+  .in-route { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; margin-bottom: 8px; transition: border-color .2s, background .2s; }
+  .in-route:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .in-route .step { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; flex: none; }
+  .in-route strong { flex: 1; font-size: 14px; font-weight: 600; }
+  .in-route svg.i { color: var(--accent); width: 16px; }
+
+  /* ---------- 코스 ---------- */
+  .intro { font-size: 13px; color: var(--muted); margin: 4px 0 14px; line-height: 1.5; }
+  .route { display: block; width: 100%; text-align: left; padding: 18px; border: 1px solid var(--line); background: var(--surface); border-radius: 18px; margin-bottom: 10px; transition: border-color .2s, box-shadow .2s; }
+  .route:hover { border-color: var(--line-strong); }
+  .route.active { border-color: transparent; box-shadow: 0 0 0 2px var(--accent), var(--shadow-1); }
+  .route .theme { font-size: 11.5px; font-weight: 700; color: var(--accent-strong); letter-spacing: .02em; }
+  .route h3 { font-family: var(--serif); font-size: 18.5px; font-weight: 700; margin: 6px 0 6px; letter-spacing: -0.02em; }
+  .route p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.6; }
+  .stats { display: flex; gap: 14px; margin-top: 12px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+  .stats span { display: inline-flex; align-items: center; gap: 5px; }
+  .stats svg.i { width: 14px; height: 14px; color: var(--muted); }
+
+  .timeline { list-style: none; margin: 4px 0 18px; padding: 0; }
+  .stop { position: relative; }
+  .stop-btn { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 10px; margin-left: -10px; width: calc(100% + 20px); border-radius: 14px; transition: background .15s; }
+  .stop-btn:hover { background: var(--sand); }
+  .stop.active .stop-btn { background: var(--accent-soft); }
+  .stop .n { width: 30px; height: 30px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); color: var(--accent-strong); font-weight: 700; font-size: 13px; display: grid; place-items: center; flex: none; position: relative; z-index: 1; }
+  .stop.active .n { background: var(--accent); color: #fff; }
+  .leg { display: flex; align-items: center; gap: 6px; margin-left: 34px; height: 26px; padding-left: 26px; font-size: 11.5px; color: var(--muted); position: relative; }
+  .leg::before { content: ""; position: absolute; left: -10px; top: -6px; bottom: -6px; border-left: 2px dashed #e4b8a6; }
+  .leg svg.i { width: 12px; height: 12px; }
+
+  /* ---------- 지도 위 요소 ---------- */
+  .lang { position: fixed; top: 16px; right: 16px; z-index: 5; display: flex; padding: 4px; gap: 2px; background: rgba(255,255,255,.94); backdrop-filter: blur(12px); border-radius: 999px; box-shadow: var(--shadow-float); }
+  .lang button { height: 32px; min-width: 42px; border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+  .lang button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+  .maplibregl-ctrl-top-right { top: 64px; right: 6px; }
+  .maplibregl-ctrl-group { border-radius: 14px !important; box-shadow: var(--shadow-float) !important; overflow: hidden; }
+  .maplibregl-ctrl-group button { width: 38px; height: 38px; }
+
+  .marker { width: 32px; height: 32px; border-radius: 50%; border: 2.5px solid #fff; color: #fff; display: grid; place-items: center; cursor: pointer; box-shadow: 0 2px 6px rgba(29,37,35,.3); transition: transform .2s var(--ease), opacity .2s; }
+  .marker svg.i { width: 15px; height: 15px; stroke-width: 2.2; }
+  .marker:hover { transform: scale(1.12); }
+  .marker.active { transform: scale(1.3); box-shadow: 0 0 0 5px rgba(255,255,255,.7), 0 4px 14px rgba(29,37,35,.35); }
+  .marker.dim { opacity: .22; transform: scale(.75); }
+  .marker.step { background: var(--accent) !important; font-weight: 800; font-size: 13px; }
+  .maplibregl-popup-content { border-radius: 14px; padding: 10px 14px; font-family: var(--sans); box-shadow: var(--shadow-float); }
+  .maplibregl-popup-tip { display: none; }
+  .pop strong { display: block; font-size: 14px; font-weight: 700; }
+  .pop span { font-size: 12px; color: var(--muted); }
+
+  /* ---------- 모바일: 하단 시트 ---------- */
+  @media (max-width: 760px) {
+    .panel { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; height: 58vh; border-radius: 22px; }
+    .panel::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 4px; background: var(--line-strong); margin: 8px auto 0; }
+    .panel-top { padding: 12px 16px 12px; }
+    .panel-body { padding: 0 16px 16px; }
+    .chips { margin: 12px -16px 0; padding: 0 16px 2px; }
+    .panel-foot { display: none; }
+    .lang { top: 12px; right: 12px; }
+    .maplibregl-ctrl-top-right { top: 56px; }
+    .hero { height: 120px; }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<section class="panel" aria-label="LOCAL ATLAS">
+  <div class="panel-top">
+    <div class="brand">
+      <h1>LOCAL ATLAS</h1>
+      <span class="region" data-icon="pin"><span id="region"></span></span>
+    </div>
+    <nav class="seg" role="tablist" data-tab="places">
+      <span class="thumb"></span>
+      <button role="tab" data-tab="places" aria-selected="true"><span data-icon="compass"></span><span data-i18n="tabPlaces"></span></button>
+      <button role="tab" data-tab="routes" aria-selected="false"><span data-icon="route"></span><span data-i18n="tabRoutes"></span></button>
+    </nav>
+  </div>
+  <div class="panel-body" id="panel"></div>
+  <div class="panel-foot"><span class="dot"></span><span data-i18n="banner"></span></div>
+</section>
+
+<div class="lang">
+  <button data-lang="ko" aria-pressed="true">KO</button>
+  <button data-lang="en" aria-pressed="false">EN</button>
+</div>
+
+<script>
+const DATA = {"places":[{"id":"cafe-ivy","nameKo":"담쟁이 로스터리","nameEn":"Ivy Roastery","latitude":35.8192,"longitude":127.1472,"category":"cafe","theme":"cafe-alley","descriptionKo":"담쟁이 넝쿨이 덮인 작은 로스터리입니다. 가상 샘플 장소이므로 실제 정보로 교체하세요.","descriptionEn":"A small roastery covered in ivy. Fictional sample place; replace with real data.","address":"가상 주소 · 샘플로 1길 12","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"10:00-19:00","tags":["커피","로스터리","조용한"],"externalUrl":"","recommendedDurationMinutes":45,"updatedAt":"2026-10-08","isSample":true},{"id":"cafe-lantern","nameKo":"등불 책방카페","nameEn":"Lantern Book Café","latitude":35.8186,"longitude":127.1485,"category":"cafe","theme":"cafe-alley","descriptionKo":"책을 읽으며 쉬어 가는 책방 겸 카페입니다. (가상 샘플)","descriptionEn":"A bookshop café for reading and resting. (Fictional sample)","address":"가상 주소 · 샘플로 1길 24","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"11:00-20:00","tags":["책방","독서","디저트"],"externalUrl":"","recommendedDurationMinutes":40,"updatedAt":"2026-10-08","isSample":true},{"id":"food-noodle-alley","nameKo":"골목 국수집","nameEn":"Alley Noodle House","latitude":35.8179,"longitude":127.1494,"category":"food","theme":"cafe-alley","descriptionKo":"골목 안쪽에 있는 잔치국수 식당입니다. (가상 샘플)","descriptionEn":"A noodle shop tucked inside the alley. (Fictional sample)","address":"가상 주소 · 샘플로 2길 5","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"11:00-15:00","tags":["국수","점심","로컬"],"externalUrl":"","recommendedDurationMinutes":40,"updatedAt":"2026-10-08","isSample":true},{"id":"cafe-bakery-sol","nameKo":"해솔 베이커리","nameEn":"Haesol Bakery","latitude":35.8172,"longitude":127.1503,"category":"cafe","theme":"cafe-alley","descriptionKo":"갓 구운 빵 냄새가 나는 동네 빵집입니다. (가상 샘플)","descriptionEn":"A neighborhood bakery with fresh-baked aromas. (Fictional sample)","address":"가상 주소 · 샘플로 2길 18","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"08:00-18:00","tags":["빵","베이커리","테이크아웃"],"externalUrl":"","recommendedDurationMinutes":30,"updatedAt":"2026-10-08","isSample":true},{"id":"landmark-mural","nameKo":"벽화 골목","nameEn":"Mural Lane","latitude":35.8166,"longitude":127.1513,"category":"landmark","theme":"cafe-alley","descriptionKo":"주민들이 함께 그린 벽화가 이어지는 골목입니다. (가상 샘플)","descriptionEn":"A lane lined with murals painted by residents. (Fictional sample)","address":"가상 주소 · 샘플로 3길","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["벽화","사진","산책"],"externalUrl":"","recommendedDurationMinutes":30,"updatedAt":"2026-10-08","isSample":true},{"id":"cafe-rooftop","nameKo":"옥상 찻집","nameEn":"Rooftop Tea House","latitude":35.816,"longitude":127.1522,"category":"cafe","theme":"cafe-alley","descriptionKo":"지붕 너머 동네가 내려다보이는 옥상 찻집입니다. (가상 샘플)","descriptionEn":"A rooftop tea house overlooking the neighborhood. (Fictional sample)","address":"가상 주소 · 샘플로 3길 9","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"12:00-21:00","tags":["차","전망","야외"],"externalUrl":"","recommendedDurationMinutes":50,"updatedAt":"2026-10-08","isSample":true},{"id":"cafe-moon","nameKo":"달빛 디저트","nameEn":"Moonlight Desserts","latitude":35.8154,"longitude":127.1531,"category":"cafe","theme":"cafe-alley","descriptionKo":"저녁까지 여는 수제 디저트 카페입니다. (가상 샘플)","descriptionEn":"A handmade dessert café open until evening. (Fictional sample)","address":"가상 주소 · 샘플로 4길 2","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"13:00-22:00","tags":["디저트","야간","수제"],"externalUrl":"","recommendedDurationMinutes":45,"updatedAt":"2026-10-08","isSample":true},{"id":"history-gate","nameKo":"옛 성문터","nameEn":"Old Gate Site","latitude":35.8165,"longitude":127.1545,"category":"history","theme":"history","descriptionKo":"옛 성문이 있었던 자리를 알리는 표지석이 서 있습니다. (가상 샘플)","descriptionEn":"A marker stone shows where the old gate once stood. (Fictional sample)","address":"가상 주소 · 역사로 1","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["성문","표지석","역사"],"externalUrl":"","recommendedDurationMinutes":20,"updatedAt":"2026-10-08","isSample":true},{"id":"history-hall","nameKo":"고을 서당","nameEn":"Village Study Hall","latitude":35.8158,"longitude":127.1552,"category":"history","theme":"history","descriptionKo":"옛 서당을 재현한 작은 전시 공간입니다. (가상 샘플)","descriptionEn":"A small exhibit recreating an old village school. (Fictional sample)","address":"가상 주소 · 역사로 8","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"09:00-17:00 (월 휴관)","tags":["서당","전시","체험"],"externalUrl":"","recommendedDurationMinutes":40,"updatedAt":"2026-10-08","isSample":true},{"id":"history-hanok-row","nameKo":"한옥 골목","nameEn":"Hanok Row","latitude":35.815,"longitude":127.1545,"category":"history","theme":"history","descriptionKo":"낮은 처마가 이어지는 한옥 골목입니다. (가상 샘플)","descriptionEn":"An alley of low-eaved traditional houses. (Fictional sample)","address":"가상 주소 · 역사로 15","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["한옥","골목","사진"],"externalUrl":"","recommendedDurationMinutes":30,"updatedAt":"2026-10-08","isSample":true},{"id":"history-museum","nameKo":"마을 역사관","nameEn":"Town History Museum","latitude":35.8143,"longitude":127.1553,"category":"history","theme":"history","descriptionKo":"동네의 옛 사진과 생활 도구를 모은 역사관입니다. (가상 샘플)","descriptionEn":"A museum of old photos and everyday tools. (Fictional sample)","address":"가상 주소 · 역사로 22","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"09:30-17:30 (월 휴관)","tags":["박물관","전시","실내"],"externalUrl":"","recommendedDurationMinutes":60,"updatedAt":"2026-10-08","isSample":true},{"id":"history-well","nameKo":"우물터","nameEn":"Old Well Square","latitude":35.8137,"longitude":127.1562,"category":"history","theme":"history","descriptionKo":"마을 사람들이 모이던 옛 우물터입니다. (가상 샘플)","descriptionEn":"The old well where villagers used to gather. (Fictional sample)","address":"가상 주소 · 역사로 30","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["우물","광장","쉼터"],"externalUrl":"","recommendedDurationMinutes":15,"updatedAt":"2026-10-08","isSample":true},{"id":"history-temple","nameKo":"고요사","nameEn":"Goyo Temple","latitude":35.813,"longitude":127.1571,"category":"history","theme":"history","descriptionKo":"숲 가장자리에 자리한 고즈넉한 작은 사찰입니다. (가상 샘플)","descriptionEn":"A quiet small temple at the edge of the woods. (Fictional sample)","address":"가상 주소 · 역사로 41","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"06:00-18:00","tags":["사찰","고즈넉","명상"],"externalUrl":"","recommendedDurationMinutes":40,"updatedAt":"2026-10-08","isSample":true},{"id":"food-hansang","nameKo":"한상 식당","nameEn":"Hansang Table","latitude":35.814,"longitude":127.158,"category":"food","theme":"history","descriptionKo":"제철 반찬을 차려 내는 한정식 식당입니다. (가상 샘플)","descriptionEn":"A restaurant serving a seasonal Korean set meal. (Fictional sample)","address":"가상 주소 · 역사로 52","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"11:30-20:00","tags":["한정식","저녁","로컬"],"externalUrl":"","recommendedDurationMinutes":60,"updatedAt":"2026-10-08","isSample":true},{"id":"nature-stream","nameKo":"맑은내 산책로","nameEn":"Clearstream Walk","latitude":35.812,"longitude":127.159,"category":"nature","theme":"nature-rest","descriptionKo":"개울을 따라 걷는 완만한 산책로입니다. (가상 샘플)","descriptionEn":"A gentle path along a stream. (Fictional sample)","address":"가상 주소 · 자연로 3","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["개울","산책","가족"],"externalUrl":"","recommendedDurationMinutes":40,"updatedAt":"2026-10-08","isSample":true},{"id":"nature-pond","nameKo":"연꽃 연못","nameEn":"Lotus Pond","latitude":35.8112,"longitude":127.16,"category":"nature","theme":"nature-rest","descriptionKo":"여름이면 연꽃이 피는 작은 연못입니다. (가상 샘플)","descriptionEn":"A small pond where lotus flowers bloom in summer. (Fictional sample)","address":"가상 주소 · 자연로 10","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["연꽃","연못","사진"],"externalUrl":"","recommendedDurationMinutes":25,"updatedAt":"2026-10-08","isSample":true},{"id":"nature-forest","nameKo":"소나무 숲길","nameEn":"Pine Forest Trail","latitude":35.8104,"longitude":127.1611,"category":"nature","theme":"nature-rest","descriptionKo":"솔향이 나는 평탄한 숲길입니다. (가상 샘플)","descriptionEn":"A flat forest trail scented with pine. (Fictional sample)","address":"가상 주소 · 자연로 18","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["숲길","산책","피톤치드"],"externalUrl":"","recommendedDurationMinutes":45,"updatedAt":"2026-10-08","isSample":true},{"id":"food-picnic","nameKo":"들마루 도시락","nameEn":"Deulmaru Picnic Lunch","latitude":35.81,"longitude":127.1618,"category":"food","theme":"nature-rest","descriptionKo":"산책 중 먹기 좋은 도시락을 파는 가게입니다. (가상 샘플)","descriptionEn":"A shop selling lunch boxes perfect for a walk. (Fictional sample)","address":"가상 주소 · 자연로 25","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"10:00-17:00","tags":["도시락","피크닉","테이크아웃"],"externalUrl":"","recommendedDurationMinutes":30,"updatedAt":"2026-10-08","isSample":true},{"id":"nature-hill","nameKo":"달맞이 언덕","nameEn":"Moon-view Hill","latitude":35.8096,"longitude":127.1626,"category":"nature","theme":"nature-rest","descriptionKo":"보름달 구경하기 좋은 낮은 언덕입니다. (가상 샘플)","descriptionEn":"A low hill that is lovely at full moon. (Fictional sample)","address":"가상 주소 · 자연로 31","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["언덕","야경","전망"],"externalUrl":"","recommendedDurationMinutes":30,"updatedAt":"2026-10-08","isSample":true},{"id":"landmark-deck","nameKo":"별보기 전망대","nameEn":"Stargazing Deck","latitude":35.809,"longitude":127.1634,"category":"landmark","theme":"nature-rest","descriptionKo":"밤하늘을 보기 좋은 나무 전망대입니다. (가상 샘플)","descriptionEn":"A wooden deck made for stargazing. (Fictional sample)","address":"가상 주소 · 자연로 36","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["별","전망대","야경"],"externalUrl":"","recommendedDurationMinutes":30,"updatedAt":"2026-10-08","isSample":true},{"id":"cafe-forest","nameKo":"숲속 찻집","nameEn":"Forest Tea Room","latitude":35.8084,"longitude":127.1628,"category":"cafe","theme":"nature-rest","descriptionKo":"산책을 마치고 따뜻한 차를 마시는 찻집입니다. (가상 샘플)","descriptionEn":"A tea room for a warm cup after your walk. (Fictional sample)","address":"가상 주소 · 자연로 40","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"10:00-18:00","tags":["차","휴식","숲"],"externalUrl":"","recommendedDurationMinutes":40,"updatedAt":"2026-10-08","isSample":true},{"id":"food-market-snack","nameKo":"시장 분식","nameEn":"Market Snacks","latitude":35.8148,"longitude":127.151,"category":"food","theme":"local-food","descriptionKo":"시장 한켠에서 파는 떡볶이와 튀김 가게입니다. (가상 샘플)","descriptionEn":"A stall selling tteokbokki and fritters in the market. (Fictional sample)","address":"가상 주소 · 장터길 7","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"10:00-19:00","tags":["분식","간식","시장"],"externalUrl":"","recommendedDurationMinutes":25,"updatedAt":"2026-10-08","isSample":true},{"id":"food-gukbap","nameKo":"장터 국밥","nameEn":"Market Gukbap","latitude":35.8142,"longitude":127.1522,"category":"food","theme":"local-food","descriptionKo":"뚝배기에 담아 내는 든든한 국밥집입니다. (가상 샘플)","descriptionEn":"","address":"가상 주소 · 장터길 14","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"07:00-21:00","tags":["국밥","아침","로컬"],"externalUrl":"","recommendedDurationMinutes":35,"updatedAt":"2026-10-08","isSample":true},{"id":"food-bibimbap","nameKo":"비빔 한그릇","nameEn":"Bibimbap Bowl","latitude":35.8175,"longitude":127.1558,"category":"food","theme":"local-food","descriptionKo":"나물을 가득 올린 비빔밥 전문점입니다. (가상 샘플)","descriptionEn":"A bibimbap shop piled high with seasonal greens. (Fictional sample)","address":"가상 주소 · 장터길 30","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"11:00-20:00","tags":["비빔밥","채식","점심"],"externalUrl":"","recommendedDurationMinutes":40,"updatedAt":"2026-10-08","isSample":true},{"id":"cafe-station","nameKo":"역전 다방","nameEn":"Old Station Café","latitude":35.82,"longitude":127.15,"category":"cafe","theme":"local-food","descriptionKo":"옛 역 앞의 복고풍 다방입니다. (가상 샘플)","descriptionEn":"A retro café in front of the old station. (Fictional sample)","address":"가상 주소 · 역앞길 3","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"09:00-20:00","tags":["복고","다방","커피"],"externalUrl":"","recommendedDurationMinutes":35,"updatedAt":"2026-10-08","isSample":true},{"id":"nature-riverside","nameKo":"강변 공원","nameEn":"Riverside Park","latitude":35.8135,"longitude":127.15,"category":"nature","theme":"nature-rest","descriptionKo":"강변을 따라 자전거와 산책을 즐기는 공원입니다. (가상 샘플)","descriptionEn":"A riverside park for cycling and walking. (Fictional sample)","address":"가상 주소 · 강변로 1","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["강변","자전거","피크닉"],"externalUrl":"","recommendedDurationMinutes":60,"updatedAt":"2026-10-08","isSample":true},{"id":"nature-ginkgo","nameKo":"은행나무길","nameEn":"Ginkgo Road","latitude":35.8125,"longitude":127.1535,"category":"nature","theme":"nature-rest","descriptionKo":"가을이면 노랗게 물드는 은행나무 가로수길입니다. (가상 샘플)","descriptionEn":"A ginkgo-lined road that turns golden in autumn. (Fictional sample)","address":"가상 주소 · 강변로 20","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["가을","가로수","사진"],"externalUrl":"","recommendedDurationMinutes":25,"updatedAt":"2026-10-08","isSample":true},{"id":"landmark-market-gate","nameKo":"장터 입구","nameEn":"Market Gate","latitude":35.8152,"longitude":127.1505,"category":"landmark","theme":"landmark","descriptionKo":"전통시장으로 들어서는 아치형 입구입니다. (가상 샘플)","descriptionEn":"The arched entrance to the traditional market. (Fictional sample)","address":"가상 주소 · 장터길 1","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["시장","입구","사진"],"externalUrl":"","recommendedDurationMinutes":15,"updatedAt":"2026-10-08","isSample":true},{"id":"landmark-clocktower","nameKo":"시계탑 광장","nameEn":"Clock Tower Square","latitude":35.817,"longitude":127.153,"category":"landmark","theme":"landmark","descriptionKo":"동네 만남의 장소인 시계탑 광장입니다. (가상 샘플)","descriptionEn":"The clock tower square where neighbors meet. (Fictional sample)","address":"가상 주소 · 중앙로 1","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["광장","시계탑","만남"],"externalUrl":"","recommendedDurationMinutes":20,"updatedAt":"2026-10-08","isSample":true},{"id":"landmark-bridge","nameKo":"야경 다리","nameEn":"Night View Bridge","latitude":35.8128,"longitude":127.1515,"category":"landmark","theme":"landmark","descriptionKo":"밤에 조명이 켜지는 보행자 다리입니다. (가상 샘플)","descriptionEn":"A pedestrian bridge lit up at night. (Fictional sample)","address":"가상 주소 · 강변로 8","imageUrl":"","source":"교육용 가상 샘플","license":"SAMPLE-FICTIONAL","openingHours":"상시 개방","tags":["야경","다리","산책"],"externalUrl":"","recommendedDurationMinutes":20,"updatedAt":"2026-10-08","isSample":true}],"routes":[{"routeId":"cafe-alley-walk","titleKo":"감성 카페와 골목 산책","titleEn":"Café Hopping & Alley Stroll","descriptionKo":"로스터리에서 시작해 벽화 골목을 지나 달빛 디저트로 마무리하는 느린 오후 코스입니다. (가상 샘플 코스)","descriptionEn":"A slow afternoon from a roastery through a mural lane to moonlit desserts. (Fictional sample route)","theme":"cafe-alley","placeIds":["cafe-ivy","cafe-lantern","food-noodle-alley","cafe-bakery-sol","landmark-mural","cafe-rooftop","cafe-moon"],"transportMode":"walking"},{"routeId":"history-tour","titleKo":"역사문화 탐방 코스","titleEn":"History & Culture Tour","descriptionKo":"성문터에서 고요사까지 동네의 시간을 따라 걷고 한상 식당에서 식사하는 코스입니다. (가상 샘플 코스)","descriptionEn":"Walk through the neighborhood's past from the old gate to Goyo Temple, then dine at Hansang Table. (Fictional sample route)","theme":"history","placeIds":["history-gate","history-hall","history-hanok-row","history-museum","history-well","history-temple","food-hansang"],"transportMode":"walking"},{"routeId":"nature-weekend","titleKo":"주말 자연·휴식 코스","titleEn":"Weekend Nature & Rest","descriptionKo":"맑은내 산책로에서 별보기 전망대까지 천천히 걷고 숲속 찻집에서 쉬어 가는 코스입니다. (가상 샘플 코스)","descriptionEn":"Stroll from Clearstream Walk to the Stargazing Deck and rest at a forest tea room. (Fictional sample route)","theme":"nature-rest","placeIds":["nature-stream","nature-pond","nature-forest","food-picnic","nature-hill","landmark-deck","cafe-forest"],"transportMode":"walking"}],"categories":[{"id":"food","labelKo":"맛집","labelEn":"Eats","color":"#c2410c","icon":"utensils"},{"id":"cafe","labelKo":"카페","labelEn":"Cafés","color":"#a16207","icon":"coffee"},{"id":"nature","labelKo":"자연·산책","labelEn":"Nature & Walks","color":"#15803d","icon":"trees"},{"id":"history","labelKo":"역사·문화","labelEn":"History & Culture","color":"#7c3aed","icon":"landmark"},{"id":"landmark","labelKo":"관광명소","labelEn":"Landmarks","color":"#0369a1","icon":"camera"}],"themes":[{"id":"cafe-alley","labelKo":"감성 카페·골목","labelEn":"Cafés & Alleys"},{"id":"history","labelKo":"역사문화","labelEn":"History & Culture"},{"id":"nature-rest","labelKo":"자연·휴식","labelEn":"Nature & Rest"},{"id":"local-food","labelKo":"로컬 먹거리","labelEn":"Local Eats"},{"id":"landmark","labelKo":"동네 명소","labelEn":"Local Landmarks"}]};
+
+// 지도 중심: 양재역 3번 출구 부근 [경도, 위도].
+// 가상 샘플 장소는 원래 중심(ORIGIN) 기준 배치 모양을 유지한 채 이 위치로 평행이동한다.
+const ORIGIN = [127.153, 35.815];
+const CENTER = [127.0350, 37.4846];
+for (const p of DATA.places) {
+  p.longitude += CENTER[0] - ORIGIN[0];
+  p.latitude += CENTER[1] - ORIGIN[1];
+}
+
+const I18N = {
+  ko: {
+    region: "양재역 일대 · 가상 샘플", tabPlaces: "장소 탐색", tabRoutes: "추천 코스",
+    banner: "교육용 가상 샘플 데이터입니다. 실제 장소 정보가 아니므로 내 동네의 실제 데이터로 교체해 사용하세요.",
+    search: "장소명이나 태그로 검색", all: "전체", count: n => `${n}곳`, sample: "가상 샘플",
+    address: "주소", hours: "영업시간", duration: "추천 체류", minutes: m => `${m}분`,
+    empty: "조건에 맞는 장소가 없어요.", back: "목록으로", inRoutes: "이 장소가 포함된 코스",
+    theme: "테마", places: "장소", stops: n => `${n}곳`, km: d => `${d.toFixed(1)}km`, total: m => `약 ${hm(m, "ko")}`,
+    walk: (d, m) => `도보 ${m}분 · ${d < 1 ? Math.round(d * 1000) + "m" : d.toFixed(1) + "km"}`,
+    intro: "코스를 고르면 지도에 순서대로 이어서 보여 드려요.", step: n => `${n}번째`,
+  },
+  en: {
+    region: "Yangjae Station · Fictional", tabPlaces: "Explore", tabRoutes: "Routes",
+    banner: "Fictional sample data for education. Replace it with real data from your neighborhood.",
+    search: "Search places or tags", all: "All", count: n => `${n} places`, sample: "Sample",
+    address: "Address", hours: "Hours", duration: "Stay", minutes: m => `${m} min`,
+    empty: "No places match your filters.", back: "Back to list", inRoutes: "Routes with this place",
+    theme: "Theme", places: "Places", stops: n => `${n} stops`, km: d => `${d.toFixed(1)} km`, total: m => `~${hm(m, "en")}`,
+    walk: (d, m) => `${m} min walk · ${d < 1 ? Math.round(d * 1000) + " m" : d.toFixed(1) + " km"}`,
+    intro: "Pick a route to see its stops connected on the map.", step: n => `Stop ${n}`,
+  },
+};
+function hm(min, lang) {
+  const h = Math.floor(min / 60), m = Math.round(min % 60 / 10) * 10;
+  return lang === "ko" ? (h ? `${h}시간 ` : "") + (m ? `${m}분` : "") : (h ? `${h}h ` : "") + (m ? `${m}m` : "");
+}
+
+// lucide 스타일 아이콘 (정적 문자열만 innerHTML로 넣는다)
+const PATHS = {
+  food: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>',
+  cafe: '<path d="M10 2v2"/><path d="M14 2v2"/><path d="M6 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/>',
+  nature: '<path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"/><path d="M7 16v6"/><path d="M13 19v3"/><path d="M12 19h8.3a1 1 0 0 0 .7-1.7L18 14h.3a1 1 0 0 0 .7-1.7L16 9h.2a1 1 0 0 0 .8-1.7L13 3l-1.4 1.5"/>',
+  history: '<path d="M3 22h18"/><path d="M6 18v-7"/><path d="M10 18v-7"/><path d="M14 18v-7"/><path d="M18 18v-7"/><path d="M12 2 20 7H4z"/>',
+  landmark: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  chevron: '<path d="m9 18 6-6-6-6"/>',
+  back: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  compass: '<circle cx="12" cy="12" r="10"/><path d="m16.2 7.8-2 6.3-6.4 2.1 2-6.3z"/>',
+  route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
+  walk: '<path d="M4 16v-2.4C4 11.5 3 10.5 3 8c0-2.7 1.5-6 4.5-6C9.4 2 10 3.8 10 5.5c0 3.1-2 5.7-2 8.7V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.4c0-2.1 1-3.1 1-5.6 0-2.7-1.5-6-4.5-6C14.6 6 14 7.8 14 9.5c0 3.1 2 5.7 2 8.7V20a2 2 0 1 0 4 0Z"/>',
+  ruler: '<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.4 2.4 0 0 1 0-3.4l2.6-2.6a2.4 2.4 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>',
+};
+function icon(name) {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("viewBox", "0 0 24 24");
+  s.setAttribute("class", "i");
+  s.innerHTML = PATHS[name];
+  return s;
+}
+
+const state = { lang: "ko", tab: "places", category: "all", query: "", openId: null, routeId: null };
+const catById = Object.fromEntries(DATA.categories.map(c => [c.id, c]));
+const placeById = Object.fromEntries(DATA.places.map(p => [p.id, p]));
+const themeById = Object.fromEntries(DATA.themes.map(th => [th.id, th]));
+const t = key => I18N[state.lang][key];
+const L = (obj, base) => obj[base + (state.lang === "ko" ? "Ko" : "En")];
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v;
+    else if (k === "style") node.style.cssText = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) if (c != null) node.append(c);
+  return node;
+}
+
+// 두 지점 사이 직선거리(km)와 도보 시간(분, 4.5km/h · 곡선 보정 1.25)
+function distKm(a, b) {
+  const R = 6371, rad = d => d * Math.PI / 180;
+  const dLat = rad(b.latitude - a.latitude), dLng = rad(b.longitude - a.longitude);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h)) * 1.25;
+}
+const walkMin = km => Math.max(1, Math.round(km / 4.5 * 60));
+function routeStats(r) {
+  const ps = r.placeIds.map(id => placeById[id]);
+  let km = 0;
+  for (let i = 1; i < ps.length; i++) km += distKm(ps[i - 1], ps[i]);
+  const stay = ps.reduce((s, p) => s + p.recommendedDurationMinutes, 0);
+  return { km, total: stay + walkMin(km) };
+}
+
+// ---- 지도 ----
+const map = new maplibregl.Map({
+  container: "map",
+  style: "https://tiles.openfreemap.org/styles/positron",
+  center: CENTER,
+  zoom: 14.5,
+  attributionControl: { compact: true },
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+map.addControl(new maplibregl.GeolocateControl({}), "top-right");
+// 데스크톱에서 떠 있는 패널에 가리지 않도록 지도 중심을 오른쪽으로 민다.
+const isDesktop = () => window.matchMedia("(min-width: 761px)").matches;
+const mapPadding = () => isDesktop() ? { left: 440, top: 40, right: 60, bottom: 40 } : { left: 30, right: 30, top: 70, bottom: window.innerHeight * 0.58 + 20 };
+
+const markers = {};
+const popup = new maplibregl.Popup({ offset: 22, closeButton: false });
+for (const p of DATA.places) {
+  const node = el("div", { class: "marker" });
+  node.addEventListener("click", e => { e.stopPropagation(); selectPlace(p.id, true); });
+  markers[p.id] = { node, marker: new maplibregl.Marker({ element: node }).setLngLat([p.longitude, p.latitude]).addTo(map) };
+}
+
+function showPopup(p) {
+  const box = el("div", { class: "pop" }, el("strong", {}, L(p, "name")),
+    el("span", {}, `${L(catById[p.category], "label")} · ${t("minutes")(p.recommendedDurationMinutes)}`));
+  popup.setLngLat([p.longitude, p.latitude]).setDOMContent(box).addTo(map);
+}
+
+function filteredPlaces() {
+  const q = state.query.trim().toLowerCase();
+  return DATA.places.filter(p =>
+    (state.category === "all" || p.category === state.category) &&
+    (!q || [p.nameKo, p.nameEn, ...p.tags].some(s => s.toLowerCase().includes(q))));
+}
+
+const currentRoute = () => state.tab === "routes" ? DATA.routes.find(r => r.routeId === state.routeId) : null;
+
+function updateMarkers() {
+  const route = currentRoute();
+  const visible = new Set(state.tab === "places" ? filteredPlaces().map(p => p.id) : route ? route.placeIds : DATA.places.map(p => p.id));
+  for (const [id, { node }] of Object.entries(markers)) {
+    const step = route ? route.placeIds.indexOf(id) : -1;
+    node.className = "marker" + (step >= 0 ? " step" : "") + (!visible.has(id) ? " dim" : "") + (state.openId === id ? " active" : "");
+    node.style.background = catById[placeById[id].category].color;
+    node.replaceChildren(step >= 0 ? String(step + 1) : icon(placeById[id].category));
+    node.style.zIndex = state.openId === id ? 3 : step >= 0 ? 2 : 1;
+  }
+  drawRouteLine(route);
+}
+
+// isStyleLoaded()는 타일 로딩 중에도 false라서, load 이벤트 기준 플래그를 따로 둔다.
+let mapReady = false;
+let fittedRouteId = null;
+function drawRouteLine(route) {
+  const coords = route ? route.placeIds.map(id => [placeById[id].longitude, placeById[id].latitude]) : [];
+  if (mapReady) {
+    const geojson = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } };
+    if (map.getSource("route")) map.getSource("route").setData(geojson);
+    else {
+      map.addSource("route", { type: "geojson", data: geojson });
+      const layout = { "line-join": "round", "line-cap": "round" };
+      map.addLayer({ id: "route-casing", type: "line", source: "route", layout,
+        paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": .9 } });
+      map.addLayer({ id: "route", type: "line", source: "route", layout,
+        paint: { "line-color": "#c4532d", "line-width": 4 } });
+    }
+  }
+  // 코스가 바뀔 때만 전체가 보이게 맞춘다 (코스 안 장소를 눌렀을 때 flyTo를 덮어쓰지 않도록).
+  const id = route ? route.routeId : null;
+  if (id !== fittedRouteId) {
+    fittedRouteId = id;
+    if (route) {
+      const b = new maplibregl.LngLatBounds();
+      coords.forEach(c => b.extend(c));
+      map.fitBounds(b, { padding: mapPadding(), maxZoom: 16, duration: 900 });
+    }
+  }
+}
+function fitAll(duration) {
+  const b = new maplibregl.LngLatBounds();
+  DATA.places.forEach(p => b.extend([p.longitude, p.latitude]));
+  map.fitBounds(b, { padding: mapPadding(), maxZoom: 16, duration });
+}
+fitAll(0);
+map.on("load", () => { mapReady = true; updateMarkers(); });
+map.on("click", () => { if (state.openId) { state.openId = null; popup.remove(); render(); } });
+
+function selectPlace(id, fromMap) {
+  const route = currentRoute();
+  // 코스 탭에서 코스 밖 장소를 누르면 장소 탐색 상세로 넘어간다.
+  if (state.tab === "routes" && fromMap && !(route && route.placeIds.includes(id))) state.tab = "places";
+  if (state.tab === "places" && fromMap) { state.category = "all"; state.query = ""; }
+  state.openId = state.openId === id && !fromMap && state.tab === "routes" ? null : id;
+  const p = placeById[id];
+  if (state.openId) {
+    map.flyTo({ center: [p.longitude, p.latitude], zoom: Math.max(map.getZoom(), 15.8), padding: mapPadding(), duration: 800 });
+    showPopup(p);
+  } else popup.remove();
+  render(true);
+}
+
+function openRoute(routeId) {
+  state.tab = "routes"; state.routeId = routeId; state.openId = null; popup.remove();
+  render(true);
+}
+
+// ---- 패널: 장소 ----
+function catTile(c) {
+  const tile = el("div", { class: "tile", style: `background:${c.color}1a;color:${c.color}` });
+  tile.append(icon(c.id));
+  return tile;
+}
+
+function renderPlaces(panel) {
+  if (state.openId) return renderDetail(panel, placeById[state.openId]);
+
+  const input = el("input", { type: "search", placeholder: t("search"), "aria-label": t("search") });
+  input.value = state.query;
+  input.addEventListener("input", () => { state.query = input.value; renderList(); updateMarkers(); });
+  panel.append(el("label", { class: "search" }, icon("search"), input));
+
+  const chips = el("div", { class: "chips" });
+  for (const c of [{ id: "all" }, ...DATA.categories]) {
+    chips.append(el("button", { class: "chip", "aria-pressed": String(state.category === c.id),
+      onclick: () => { state.category = c.id; render(); } },
+      c.id === "all" ? null : el("span", { class: "sw", style: `background:${c.color}` }),
+      c.id === "all" ? t("all") : L(c, "label")));
+  }
+  panel.append(chips);
+  panel.append(el("div", { id: "list" }));
+  renderList();
+}
+
+function renderList() {
+  const list = document.getElementById("list");
+  const items = filteredPlaces();
+  list.replaceChildren(el("div", { class: "list-head" }, el("span", {}, t("places")), el("span", {}, t("count")(items.length))),
+    ...(items.length ? items.map(p => {
+      const c = catById[p.category];
+      return el("button", { class: "row", onclick: () => selectPlace(p.id, false),
+        onmouseenter: () => markers[p.id].node.classList.add("active"),
+        onmouseleave: () => state.openId !== p.id && markers[p.id].node.classList.remove("active") },
+        catTile(c),
+        el("div", { class: "row-main" }, el("strong", {}, L(p, "name")),
+          el("span", {}, `${L(c, "label")} · ${t("minutes")(p.recommendedDurationMinutes)}`)),
+        icon("chevron"));
+    }) : [el("p", { class: "empty" }, t("empty"))]));
+}
+
+function renderDetail(panel, p) {
+  const c = catById[p.category];
+  const hero = el("div", { class: "hero", style: `background:linear-gradient(135deg, ${c.color}, ${c.color}cc 60%, #1d2523)` },
+    el("span", { class: "big" }, icon(c.id)),
+    el("span", { class: "badge" }, L(c, "label") + (p.isSample ? ` · ${t("sample")}` : "")));
+  const facts = el("dl", { class: "facts" },
+    el("div", {}, el("dt", {}, icon("clock"), t("hours")), el("dd", {}, p.openingHours || "—")),
+    el("div", {}, el("dt", {}, icon("walk"), t("duration")), el("dd", {}, t("minutes")(p.recommendedDurationMinutes))),
+    el("div", {}, el("dt", {}, icon("compass"), t("theme")), el("dd", {}, L(themeById[p.theme] || { labelKo: "—", labelEn: "—" }, "label"))),
+    el("div", { class: "wide" }, el("dt", {}, icon("pin"), t("address")), el("dd", {}, p.address)));
+  panel.append(
+    el("button", { class: "back", onclick: () => { state.openId = null; popup.remove(); render(true); } }, icon("back"), t("back")),
+    el("article", { class: "detail" }, hero,
+      el("h2", {}, L(p, "name")),
+      el("p", { class: "sub" }, state.lang === "ko" ? p.nameEn : p.nameKo),
+      el("p", { class: "desc" }, L(p, "description")),
+      facts,
+      el("div", { class: "tags" }, ...p.tags.map(tag => el("span", {}, "#" + tag)))));
+
+  const routes = DATA.routes.filter(r => r.placeIds.includes(p.id));
+  if (routes.length) {
+    panel.append(el("div", { class: "section-title" }, t("inRoutes")));
+    for (const r of routes) {
+      panel.append(el("button", { class: "in-route", onclick: () => openRoute(r.routeId) },
+        el("span", { class: "step" }, String(r.placeIds.indexOf(p.id) + 1)),
+        el("strong", {}, L(r, "title")), icon("chevron")));
+    }
+  }
+}
+
+// ---- 패널: 코스 ----
+function renderRoutes(panel) {
+  panel.append(el("p", { class: "intro" }, t("intro")));
+  for (const r of DATA.routes) {
+    const s = routeStats(r);
+    const active = state.routeId === r.routeId;
+    panel.append(el("button", { class: "route" + (active ? " active" : ""),
+      onclick: () => { state.routeId = r.routeId; state.openId = null; popup.remove(); render(); } },
+      el("div", { class: "theme" }, L(themeById[r.theme] || { labelKo: "", labelEn: "" }, "label")),
+      el("h3", {}, L(r, "title")),
+      el("p", {}, L(r, "description")),
+      el("div", { class: "stats" },
+        el("span", {}, icon("pin"), t("stops")(r.placeIds.length)),
+        el("span", {}, icon("ruler"), t("km")(s.km)),
+        el("span", {}, icon("clock"), t("total")(s.total)))));
+    if (active) panel.append(timeline(r));
+  }
+}
+
+function timeline(r) {
+  const ol = el("ol", { class: "timeline" });
+  r.placeIds.forEach((id, i) => {
+    const p = placeById[id], c = catById[p.category];
+    if (i > 0) {
+      const km = distKm(placeById[r.placeIds[i - 1]], p);
+      ol.append(el("li", { class: "leg", "aria-hidden": "true" }, icon("walk"), t("walk")(km, walkMin(km))));
+    }
+    ol.append(el("li", { class: "stop" + (state.openId === id ? " active" : ""), "data-place": id },
+      el("button", { class: "stop-btn", onclick: () => selectPlace(id, false) },
+        el("span", { class: "n" }, String(i + 1)),
+        el("div", { class: "row-main" }, el("strong", {}, L(p, "name")),
+          el("span", {}, `${L(c, "label")} · ${t("minutes")(p.recommendedDurationMinutes)}`)),
+        icon("chevron"))));
+  });
+  return ol;
+}
+
+function render(resetScroll) {
+  document.documentElement.lang = state.lang;
+  document.getElementById("region").textContent = t("region");
+  document.querySelectorAll("[data-i18n]").forEach(n => n.textContent = t(n.dataset.i18n));
+  document.querySelector(".seg").dataset.tab = state.tab;
+  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
+  document.querySelectorAll(".lang button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.lang === state.lang)));
+  const panel = document.getElementById("panel");
+  const scroll = panel.scrollTop;
+  panel.replaceChildren();
+  (state.tab === "places" ? renderPlaces : renderRoutes)(panel);
+  panel.scrollTop = resetScroll && state.tab === "places" ? 0 : scroll;
+  if (state.tab === "routes" && state.openId) panel.querySelector(`[data-place="${state.openId}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  updateMarkers();
+}
+
+document.querySelectorAll("[data-icon]").forEach(n => n.prepend(icon(n.dataset.icon)));
+document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+  if (state.tab === b.dataset.tab) return;
+  state.tab = b.dataset.tab; state.openId = null; popup.remove();
+  if (state.tab === "routes" && !state.routeId) state.routeId = DATA.routes[0].routeId;
+  if (state.tab === "places") fitAll(800);
+  render(true);
+}));
+document.querySelectorAll(".lang button").forEach(b => b.addEventListener("click", () => { state.lang = b.dataset.lang; render(); }));
+render();
+</script>
+</body>
+</html>
