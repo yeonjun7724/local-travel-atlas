@@ -1,0 +1,10 @@
+# railway up 업로드 제외 (.gitignore 에 더해 적용)
+.env*
+!.env.example
+.venv
+scripts/data-pipeline/cache
+docs/screenshots
+tests
+test-results
+playwright-report
+.next-ors

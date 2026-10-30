@@ -3,6 +3,7 @@ import {
   categoriesFileSchema,
   crossValidate,
   placeRowSchema,
+  routePathsFileSchema,
   routesFileSchema,
   type AtlasData,
 } from "@/lib/validation/schemas";
@@ -20,7 +21,7 @@ export class DataValidationError extends Error {
 }
 
 /** 순수 함수: 원본 텍스트 3종을 받아 검증된 데이터를 돌려줍니다. (fs 의존 없음 → 테스트 용이) */
-export function parseAtlasData(csvText: string, routesJson: string, categoriesJson: string): AtlasData {
+export function parseAtlasData(csvText: string, routesJson: string, categoriesJson: string, routePathsJson?: string | null): AtlasData {
   const issues: string[] = [];
 
   let categoriesRaw: unknown;
@@ -60,6 +61,17 @@ export function parseAtlasData(csvText: string, routesJson: string, categoriesJs
   }
   if (!parsed.data.length) issues.push("places.csv 에 장소가 없습니다");
 
+  let routePaths: AtlasData["routePaths"] = null;
+  if (routePathsJson) {
+    try {
+      const rp = routePathsFileSchema.safeParse(JSON.parse(routePathsJson));
+      if (rp.success) routePaths = rp.data;
+      else issues.push(...rp.error.issues.map((i) => `route-paths.json ${i.path.join(".")}: ${i.message}`));
+    } catch (e) {
+      issues.push(`route-paths.json JSON 문법 오류: ${(e as Error).message}`);
+    }
+  }
+
   if (issues.length || !cats.success || !routes.success) throw new DataValidationError(issues);
 
   const data: AtlasData = {
@@ -67,6 +79,7 @@ export function parseAtlasData(csvText: string, routesJson: string, categoriesJs
     routes: routes.data,
     categories: cats.data.categories,
     themes: cats.data.themes,
+    routePaths,
   };
   const cross = crossValidate(data);
   if (cross.length) throw new DataValidationError(cross);

@@ -1,40 +1,35 @@
 /*
  * 디자인 토큰 — 색·글꼴·반경·그림자는 이 파일에서만 바꿉니다. (10차시 "서비스 브랜딩" 실습 대상)
  *
- * Concept: "A Beautiful Way to Explore Places"
- *  - Primary  Deep Teal  (신뢰·탐색)       - Accent  Terracotta (여행의 온기, 선택/CTA 포인트)
- *  - Surface  Warm Off-white               - Text    Charcoal
- *
- * 간격: Tailwind 기본 4px 단위(1=4px, 2=8px, 3=12px, 4=16px, 6=24px). 임의 px 대신 이 단위만 사용합니다.
- * 반경: sm 8px(입력·작은 버튼) / card 16px(카드) / panel 24px(시트·모달) / pill(칩·아이콘 버튼)
- * 대비(실측, WCAG AA = 4.5:1): 흰 글자/primary 8.0, 흰 글자/accent 4.5, 흰 글자/accent-strong 6.0,
- *   ink/paper 14.8, muted/paper 6.0, muted/sand 5.4, accent-strong/accent-soft 4.9, 카테고리 색(흰 글자) 4.9~5.9
+ * 앱형 지도 서비스 스타일: 밝은 쿨톤 배경 + 차콜(선택·주요 버튼) + 블루(링크·거리·선택 강조)
+ * 간격: Tailwind 4px 단위 / 반경: sm 8px · card 16px · panel 24px · pill
+ * 대비(실측, WCAG AA 4.5:1): 아래 값은 scripts 로 계산 — 흰 글자/primary, 흰 글자/accent, ink/paper, muted/paper 모두 AA 이상
  */
 @theme {
-  --color-paper: #fbf8f3;
+  --color-paper: #f5f7fb;
   --color-surface: #ffffff;
-  --color-sand: #f1ece3;
-  --color-line: #e2dacb;
-  --color-ink: #1d2523;
-  --color-muted: #566260;
+  --color-sand: #f2f4f6;
+  --color-line: #e5e8eb;
+  --color-ink: #191f28;
+  --color-muted: #4e5968;
 
-  --color-primary: #0e5a57;
-  --color-primary-strong: #0a4543;
-  --color-primary-soft: #dcefed;
-  --color-accent: #c4532d;
-  --color-accent-strong: #a8431f;
-  --color-accent-soft: #f8e5dc;
-  --color-danger: #b3261e;
-  --color-danger-soft: #fbe9e7;
+  --color-primary: #191f28;
+  --color-primary-strong: #000000;
+  --color-primary-soft: #eef1f5;
+  --color-accent: #1b64da;
+  --color-accent-strong: #1957c2;
+  --color-accent-soft: #e8f3ff;
+  --color-danger: #c62828;
+  --color-danger-soft: #fdecec;
 
-  --font-sans: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Noto Serif KR", "Nanum Myeongjo", "Batang", ui-serif, Georgia, serif;
+  --font-sans: "Pretendard Variable", Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Pretendard Variable", Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
 
   --radius-sm: 0.5rem;
   --radius-card: 1rem;
   --radius-panel: 1.5rem;
 
-  --shadow-card: 0 1px 2px rgba(29, 37, 35, 0.06), 0 2px 8px rgba(29, 37, 35, 0.06);
-  --shadow-float: 0 4px 12px rgba(29, 37, 35, 0.12), 0 12px 32px rgba(29, 37, 35, 0.12);
-  --shadow-sheet: 0 -4px 24px rgba(29, 37, 35, 0.14);
+  --shadow-card: 0 1px 2px rgba(25, 31, 40, 0.05), 0 1px 6px rgba(25, 31, 40, 0.05);
+  --shadow-float: 0 2px 8px rgba(25, 31, 40, 0.1), 0 8px 24px rgba(25, 31, 40, 0.1);
+  --shadow-sheet: 0 -4px 24px rgba(25, 31, 40, 0.12);
 }

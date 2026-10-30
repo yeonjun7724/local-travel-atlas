@@ -22,7 +22,8 @@
 ## 강사 사전 준비사항
 
 - [ ] **GitHub 시작 템플릿**: 이 저장소는 *완성본*이다. 단계별 시작점(예: 4차시 시작, 5차시 시작 …)은 아래 "코드 스냅샷 전략"대로 강사가 만들어 배포해야 한다 (현재 자동 생성하지 않음).
-- [ ] **샘플 장소 CSV**: `data/places.csv`(가상 30곳, `isSample=true`)를 수강생용으로 복사 제공. 실제 동네 샘플을 쓸 경우 출처·이용허락 확인.
+- [ ] **샘플 장소 CSV**: `data/samples/places.sample.csv`(가상 30곳, `isSample=true`)와 `routes.sample.json` 을 수강생용 시작 데이터로 제공. 완성본의 `data/places.csv` 는 실데이터 1,222곳(시연용)입니다.
+- [ ] **실데이터 시연(선택)**: 소상공인시장진흥공단 키(공공데이터포털)·Python 환경이 있으면 `scripts/data-pipeline/` 로 수집·OSMnx 경로 계산을 시연(README §5-1).
 - [ ] **지도 설정 가이드**: 별도 키 불필요(OpenFreeMap). 회사망·교육장 방화벽에서 `tiles.openfreemap.org` 접근 가능 여부 사전 점검, WebGL 켜진 브라우저 확인.
 - [ ] **경로 API(선택)**: OpenRouteService 계정·키 발급 → 무료 한도·약관 사전 확인 → 시연용 키는 강사가 `.env.local` 로만 사용(화면 공유 주의). 수강생은 키 없이도 완주 가능.
 - [ ] **배포 예제**: 강사 Vercel 계정으로 완성본 1회 배포해 둔다(데모 URL·QR). 수강생은 본인 GitHub/Vercel 계정 필요(사전 가입 안내).

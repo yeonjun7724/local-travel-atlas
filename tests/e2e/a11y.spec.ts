@@ -12,14 +12,14 @@ const fmt = (v: Awaited<ReturnType<typeof scan>>) => v.map((x) => `${x.id}: ${x.
 
 test("접근성(axe): 첫 화면", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator('[data-testid^="marker-"]').first()).toBeVisible();
+  await expect(page.locator('[data-testid="cluster"], [data-testid^="marker-"]').first()).toBeVisible();
   const v = await scan(page);
   expect(v, fmt(v)).toEqual([]);
 });
 
 test("접근성(axe): 장소 상세", async ({ page }) => {
-  await page.goto("/?place=cafe-ivy");
-  await expect(page.getByTestId("place-detail-cafe-ivy")).toBeVisible();
+  await page.goto("/?place=osm-w36524723");
+  await expect(page.getByTestId("place-detail-osm-w36524723")).toBeVisible();
   const v = await scan(page);
   expect(v, fmt(v)).toEqual([]);
 });

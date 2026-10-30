@@ -40,6 +40,12 @@ const optionalText = z
   .optional()
   .transform((v) => (v && v.trim() ? v.trim() : undefined));
 
+const optionalUrl = z
+  .string()
+  .optional()
+  .transform((v) => (v && v.trim() ? v.trim() : undefined))
+  .refine((v) => v === undefined || httpUrl.safeParse(v).success, "http(s) URL 이어야 합니다");
+
 /** CSV 한 행(모두 문자열)을 검증·변환하는 스키마 */
 export const placeRowSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/, "id 는 영문 소문자·숫자·하이픈만 사용할 수 있습니다"),
@@ -89,6 +95,20 @@ export const placeRowSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "").trim().toLowerCase() === "true"),
+  // ── 출처 추적용 선택 열 (실데이터 파이프라인이 채움) ──
+  sourceUrl: optionalUrl,
+  descriptionSource: optionalText,
+  descriptionSourceUrl: optionalUrl,
+  /** 사진 저작자·라이선스 (CC 라이선스 사진은 표기 의무) */
+  imageCredit: optionalText,
+  imageSourceUrl: optionalUrl,
+  wikidata: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : undefined))
+    .refine((v) => v === undefined || /^Q\d+$/.test(v), "wikidata 는 Q123 형식이어야 합니다"),
+  /** 세부 업종/종류 (예: 백반/한정식, 카페, 박물관·전시관) */
+  subtype: optionalText,
 });
 
 export type Place = z.infer<typeof placeRowSchema>;
@@ -108,11 +128,30 @@ export type Route = z.infer<typeof routeSchema>;
 export type Category = z.infer<typeof categorySchema>;
 export type Theme = z.infer<typeof themeSchema>;
 
+/** OSMnx 로 미리 계산한 실제 도보 경로 (data/route-paths.json) */
+export const routePathSchema = z.object({
+  totalDistanceM: z.number().nonnegative(),
+  totalDurationS: z.number().nonnegative(),
+  segments: z.array(z.object({ distanceM: z.number().nonnegative(), durationS: z.number().nonnegative() })),
+  geometry: z.array(z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)])).min(2),
+});
+export const routePathsFileSchema = z.object({
+  generatedAt: z.string(),
+  source: z.string(),
+  license: z.string(),
+  walkingSpeedKmh: z.number().positive(),
+  routes: z.record(z.string(), routePathSchema),
+});
+export type RoutePath = z.infer<typeof routePathSchema>;
+export type RoutePathsFile = z.infer<typeof routePathsFileSchema>;
+
 export interface AtlasData {
   places: Place[];
   routes: Route[];
   categories: Category[];
   themes: Theme[];
+  /** 코스별 실제 도보 경로(없으면 null → 직선 연결선으로 표시) */
+  routePaths: RoutePathsFile | null;
 }
 
 /** 파싱된 모든 데이터의 교차 검증. 문제 목록을 반환합니다(빈 배열이면 정상). */
@@ -141,6 +180,14 @@ export function crossValidate(data: AtlasData): string[] {
       if (!seen.has(pid)) errors.push(`[${r.routeId}] 코스가 참조하는 장소 id 가 없습니다: ${pid}`);
       if (inRoute.has(pid)) errors.push(`[${r.routeId}] 같은 장소가 코스에 중복되었습니다: ${pid}`);
       inRoute.add(pid);
+    }
+  }
+  if (data.routePaths) {
+    for (const [rid, path] of Object.entries(data.routePaths.routes)) {
+      const r = data.routes.find((x) => x.routeId === rid);
+      if (!r) errors.push(`route-paths.json 에 routes.json 에 없는 코스가 있습니다: ${rid}`);
+      else if (path.segments.length !== r.placeIds.length - 1)
+        errors.push(`[${rid}] 경로 구간 수(${path.segments.length})가 방문지 수-1(${r.placeIds.length - 1})과 다릅니다 → build_routes.py 를 다시 실행하세요`);
     }
   }
   return errors;

@@ -2,25 +2,28 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Info } from "lucide-react";
+import { ArrowUpDown, Heart, RefreshCw, Share2, X } from "lucide-react";
 import { siteConfig } from "@/config/site";
 import { useI18n } from "@/components/common/I18nProvider";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
+import { LanguageSwitcher } from "@/components/common/LanguageSwitcher";
 import { SearchBar } from "@/components/common/SearchBar";
 import { ShareDialog, type ShareScope } from "@/components/common/ShareDialog";
 import { Toast, type ToastMessage } from "@/components/common/Toast";
 import { MobileBottomSheet, sheetSnaps, type SheetState } from "@/components/layout/MobileBottomSheet";
-import { SiteHeader, TabNav, type Tab } from "@/components/layout/SiteHeader";
+import { BrandMark, TabNav, type Tab } from "@/components/layout/SiteHeader";
 import { ListToggle, MapControls } from "@/components/map/MapControls";
 import type { MapCommand } from "@/components/map/MapView";
 import { CategoryFilters } from "@/components/places/CategoryFilters";
 import { PlaceDetailPanel } from "@/components/places/PlaceDetailPanel";
 import { PlaceList } from "@/components/places/PlaceList";
 import { RouteExplorer, type RouteLoadState } from "@/components/routes/RouteExplorer";
-import { filterPlaces } from "@/lib/data/filter";
-import { useIsDesktop, useIsWide } from "@/lib/hooks";
-import { localizeLabel, localizePlace, localizeRoute } from "@/lib/i18n";
+import { filterPlaces, sortPlaces, subtypeCounts, type SortKey } from "@/lib/data/filter";
+import { useFavorites } from "@/lib/favorites";
+import { bboxCenter, bboxChanged, haversineMeters, inBBox, type BBox, type LngLat } from "@/lib/geo";
+import { useIsDesktop } from "@/lib/hooks";
+import { localizePlace, localizeRoute } from "@/lib/i18n";
 import type { RouteResult, TransportMode } from "@/lib/routing/ors";
 import { buildShareUrl, parseShareParams } from "@/lib/share";
 import type { AtlasData } from "@/lib/validation/schemas";
@@ -30,7 +33,24 @@ const MapView = dynamic(() => import("@/components/map/MapView"), {
   loading: () => <div className="h-full w-full bg-[var(--color-sand)]" aria-hidden="true" />,
 });
 
-type GeoStatus = "idle" | "loading";
+const PAGE_SIZE = 30;
+
+/** 적용 중인 조건 태그 (누르면 해제) */
+function FilterTag({ label, onRemove, testId }: { label: string; onRemove: () => void; testId: string }) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      onClick={onRemove}
+      data-testid={testId}
+      aria-label={t("filter.remove", { name: label })}
+      className="inline-flex h-8 items-center gap-1 rounded-full bg-[var(--color-ink)] pl-3 pr-2 text-xs font-semibold text-white transition-colors hover:bg-black"
+    >
+      {label}
+      <X aria-hidden="true" className="size-3.5" />
+    </button>
+  );
+}
 
 function useOnline(): boolean {
   return useSyncExternalStore(
@@ -50,12 +70,15 @@ function useOnline(): boolean {
 export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; routingEnabled: boolean }) {
   const { t, lang } = useI18n();
   const isDesktop = useIsDesktop();
-  const isWide = useIsWide();
   const online = useOnline();
+  const { favorites, isFavorite, toggle: toggleFavorite } = useFavorites();
 
   const [tab, setTab] = useState<Tab>("places");
   const [category, setCategory] = useState<string | null>(null);
+  const [subtype, setSubtype] = useState<string | null>(null);
+  const [favOnly, setFavOnly] = useState(false);
   const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("distance");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [routeId, setRouteId] = useState<string | null>(null);
   const [focusSeq, setFocusSeq] = useState(0);
@@ -63,18 +86,31 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
   const [command, setCommand] = useState<MapCommand>(null);
   const [sheet, setSheet] = useState<SheetState>("half");
   const [dragHeight, setDragHeight] = useState<number | null>(null);
-  const [mainHeight, setMainHeight] = useState(600);
+  const [mainHeight, setMainHeight] = useState(700);
+  const [viewBounds, setViewBounds] = useState<BBox | null>(null);
+  /** 지도가 처음 준비됐을 때의 화면 영역 → "현재 지도에서 찾은 장소"의 기본 기준 */
+  const [initialArea, setInitialArea] = useState<BBox | null>(null);
+  /** 사용자가 정한 목록 영역. undefined = 아직 안 정함(처음 영역 사용), null = 전체 결과 */
+  const [customArea, setCustomArea] = useState<BBox | null | undefined>(undefined);
+  const [page, setPage] = useState({ key: "", n: PAGE_SIZE });
+  /** 검색·필터 결과에 지도를 맞춘 직후의 화면(영역 조건이 없을 때 '다시 찾기' 버튼 기준) */
+  const [fittedView, setFittedView] = useState<BBox | null>(null);
+  const fitPendingRef = useRef(false);
+  /** 같은 좌표에 겹친 장소들(클러스터를 끝까지 확대해도 나뉘지 않을 때) — 목록을 이 장소들로 한정 */
+  const [stackIds, setStackIds] = useState<string[] | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareScope, setShareScope] = useState<ShareScope>("map");
   const [mode, setMode] = useState<TransportMode>("walking");
   const [loadState, setLoadState] = useState<RouteLoadState>({ status: "idle" });
   const [userLocation, setUserLocation] = useState<{ lng: number; lat: number } | null>(null);
-  const [geo, setGeo] = useState<GeoStatus>("idle");
+  const [locating, setLocating] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [urlReady, setUrlReady] = useState(false);
   const requestRef = useRef(0);
   const mainRef = useRef<HTMLElement>(null);
 
+  // ── 파생 데이터 ────────────────────────────────────────────────────────────
+  const areaBounds: BBox | null = customArea === undefined ? initialArea : customArea;
   const placesById = useMemo(() => new Map(data.places.map((p) => [p.id, p])), [data.places]);
   const catById = useMemo(() => new Map(data.categories.map((c) => [c.id, c])), [data.categories]);
   const activeRoute = useMemo(() => data.routes.find((r) => r.routeId === routeId) ?? null, [data.routes, routeId]);
@@ -82,20 +118,56 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     () => (activeRoute ? activeRoute.placeIds.map((id) => placesById.get(id)).filter((p): p is NonNullable<typeof p> => Boolean(p)) : null),
     [activeRoute, placesById],
   );
-  const filtered = useMemo(() => filterPlaces(data.places, { category, query }), [data.places, category, query]);
-  // 코스가 선택되면 코스 장소만, 장소 탭이면 필터 결과, 코스 탭(목록)이면 전체 장소를 지도에 표시
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
+  const filtered = useMemo(
+    () => filterPlaces(data.places, { category, query, subtype, favoriteIds: favOnly ? favoriteSet : null }),
+    [data.places, category, query, subtype, favOnly, favoriteSet],
+  );
+  const subtypes = useMemo(() => (category ? subtypeCounts(data.places.filter((p) => p.category === category), 8) : []), [data.places, category]);
   const mapPlaces = routeStops ?? (tab === "places" ? filtered : data.places);
+  // 선택은 지도에 실제로 그려지는 장소 안에서만 유효(코스 보기 중이면 그 코스의 방문지)
   const effectiveSelectedId = selectedId && mapPlaces.some((p) => p.id === selectedId) ? selectedId : null;
   const selectedPlace = effectiveSelectedId ? (placesById.get(effectiveSelectedId) ?? null) : null;
-  const hasSamples = data.places.some((p) => p.isSample);
-  const hasFilter = category !== null || query.trim() !== "";
 
-  const bumpFit = useCallback(() => setFitSeq((n) => n + 1), []);
+  // 거리 기준점: 내 위치 → 목록 영역 중심 → 현재 지도 중심 → 설정의 기본 중심
+  const origin: LngLat = useMemo(
+    () =>
+      userLocation
+        ? [userLocation.lng, userLocation.lat]
+        : areaBounds
+          ? bboxCenter(areaBounds)
+          : viewBounds
+            ? bboxCenter(viewBounds)
+            : siteConfig.region.center,
+    [userLocation, areaBounds, viewBounds],
+  );
+  const inArea = useMemo(() => {
+    if (stackIds) {
+      const set = new Set(stackIds);
+      return filtered.filter((p) => set.has(p.id));
+    }
+    return areaBounds ? filtered.filter((p) => inBBox([p.longitude, p.latitude], areaBounds)) : filtered;
+  }, [filtered, areaBounds, stackIds]);
+  const listed = useMemo(() => sortPlaces(inArea, sortKey, origin, lang), [inArea, sortKey, origin, lang]);
+  const listKey = `${category}|${subtype}|${favOnly}|${query}|${sortKey}|${areaBounds?.join(",")}|${stackIds?.join(",")}`;
+  const shownN = page.key === listKey ? page.n : PAGE_SIZE;
+  const hasFilter = category !== null || subtype !== null || favOnly || query.trim() !== "";
+  const showAreaButton =
+    tab === "places" &&
+    !routeId &&
+    !stackIds &&
+    viewBounds !== null &&
+    bboxChanged(areaBounds ?? fittedView ?? viewBounds, viewBounds);
+
+  const bumpFit = useCallback(() => {
+    fitPendingRef.current = true; // 다음 지도 이동 완료 화면을 '맞춘 화면'으로 기록
+    setFitSeq((n) => n + 1);
+  }, []);
   const bumpFocus = useCallback(() => setFocusSeq((n) => n + 1), []);
   const showToast = useCallback((kind: ToastMessage["kind"], text: string) => setToast({ id: Date.now(), kind, text }), []);
   const dismissToast = useCallback(() => setToast(null), []);
 
-  // ── 지도 영역 높이 측정 → 바텀시트 단계 높이 계산 ───────────────────────────
+  // ── 레이아웃 측정 ──────────────────────────────────────────────────────────
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
@@ -103,22 +175,19 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     ro.observe(el);
     return () => ro.disconnect();
   }, [isDesktop]);
-
   const snaps = sheetSnaps(mainHeight);
   const sheetHeight = dragHeight ?? snaps[sheet];
-  // 시트가 지도를 가리는 높이(전체 단계에서는 절반까지만 계산해 지도 중심이 극단적으로 밀리지 않게)
   const sheetInset = isDesktop ? 0 : Math.min(sheetHeight, snaps.half);
 
-  // ── 온라인/오프라인 전환 안내 ───────────────────────────────────────────────
+  // ── 네트워크 상태 알림 ──────────────────────────────────────────────────────
   const onlineRef = useRef(online);
   useEffect(() => {
     if (onlineRef.current === online) return;
     onlineRef.current = online;
-    // 외부 상태(네트워크) 변화에 대한 일회성 알림
     showToast(online ? "success" : "error", t(online ? "net.online" : "net.offline"));
   }, [online, showToast, t]);
 
-  // ── 공유 링크로 들어왔을 때 코스/장소 자동 선택 (잘못된 값은 무시) ────────────
+  // ── 공유 링크 복원 ─────────────────────────────────────────────────────────
   useEffect(() => {
     const parsed = parseShareParams(window.location.search, new Set(data.places.map((p) => p.id)), new Set(data.routes.map((r) => r.routeId)));
     /* eslint-disable react-hooks/set-state-in-effect -- 브라우저 URL 은 마운트 후에만 읽을 수 있습니다 */
@@ -136,15 +205,12 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [data.places, data.routes]);
 
-  // 선택 상태를 주소창에 반영(새로고침·복사해도 같은 화면)
   useEffect(() => {
     if (!urlReady) return;
-    const next = buildShareUrl(window.location.href, { routeId: routeId ?? undefined, placeId: effectiveSelectedId ?? undefined });
-    const u = new URL(next);
+    const u = new URL(buildShareUrl(window.location.href, { routeId: routeId ?? undefined, placeId: effectiveSelectedId ?? undefined }));
     window.history.replaceState(null, "", u.pathname + u.search);
   }, [urlReady, routeId, effectiveSelectedId]);
 
-  // 새 장소를 열면 패널 스크롤을 맨 위로
   useEffect(() => {
     if (effectiveSelectedId) document.getElementById("panel-content")?.scrollTo({ top: 0 });
   }, [effectiveSelectedId]);
@@ -164,7 +230,6 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
   const closeDetail = useCallback(() => {
     const id = effectiveSelectedId;
     setSelectedId(null);
-    // 목록으로 돌아오면 방금 보던 카드로 포커스·스크롤을 복원합니다.
     if (id) {
       window.requestAnimationFrame(() => {
         const card = document.getElementById(`place-card-${id}`);
@@ -174,20 +239,40 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     }
   }, [effectiveSelectedId]);
 
-  // Esc 로 상세 닫기 (입력창·대화상자에서는 제외)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || shareOpen || !selectedPlace) return;
       const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT")) return;
       closeDetail();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [shareOpen, selectedPlace, closeDetail]);
 
+  const onStackPick = useCallback(
+    (ids: string[]) => {
+      setStackIds(ids);
+      setSelectedId(null);
+      setTab("places");
+      setSheet((s) => (s === "collapsed" ? "half" : s));
+      document.getElementById("panel-content")?.scrollTo({ top: 0 });
+    },
+    [],
+  );
+
+  const onViewChange = useCallback((b: BBox) => {
+    setViewBounds(b);
+    if (fitPendingRef.current) {
+      fitPendingRef.current = false;
+      setFittedView(b);
+    }
+    setInitialArea((cur) => cur ?? b);
+  }, []);
+
   const changeTab = (next: Tab) => {
     setTab(next);
+    setStackIds(null);
     if (next === "places") setRouteId(null);
     setSelectedId(null);
     setLoadState({ status: "idle" });
@@ -209,29 +294,51 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     setLoadState({ status: "idle" });
     bumpFit();
   };
-  /** 검색·필터는 항상 "장소 탐색" 흐름에서 동작합니다. 코스/상세를 보던 중이면 장소 탐색으로 돌아옵니다. */
-  const enterPlacesBrowse = () => {
+  /** 검색·필터는 항상 "장소 탐색" 흐름에서 전체 지역을 대상으로 동작하고, 결과에 지도를 맞춥니다. */
+  const applyFilterChange = () => {
     if (tab !== "places" || routeId || selectedId) {
       setTab("places");
       setRouteId(null);
       setSelectedId(null);
       setLoadState({ status: "idle" });
     }
+    setCustomArea(null);
+    setStackIds(null);
     openSheetIfCollapsed();
     bumpFit();
   };
   const changeCategory = (id: string | null) => {
     setCategory(id);
-    enterPlacesBrowse();
+    setSubtype(null);
+    applyFilterChange();
+  };
+  const changeSubtype = (s: string | null) => {
+    setSubtype(s);
+    applyFilterChange();
   };
   const changeQuery = (q: string) => {
     setQuery(q);
-    enterPlacesBrowse();
+    applyFilterChange();
+  };
+  const toggleFavOnly = () => {
+    setFavOnly((v) => !v);
+    applyFilterChange();
   };
   const resetFilters = () => {
     setCategory(null);
+    setSubtype(null);
+    setFavOnly(false);
     setQuery("");
+    setCustomArea(null);
+    setStackIds(null);
     bumpFit();
+  };
+  const searchThisArea = () => {
+    if (!viewBounds) return;
+    setCustomArea(viewBounds);
+    setStackIds(null);
+    setSelectedId(null);
+    openSheetIfCollapsed();
   };
 
   const openShare = (scope?: ShareScope) => {
@@ -256,7 +363,7 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
         body: JSON.stringify({ routeId, mode }),
         signal: AbortSignal.timeout(20000),
       });
-      if (myRequest !== requestRef.current) return; // 그 사이 코스/이동수단이 바뀐 응답은 버립니다
+      if (myRequest !== requestRef.current) return;
       if (res.status === 503) return setLoadState({ status: "error", code: "not_configured" });
       if (res.status === 429) return setLoadState({ status: "error", code: "rate_limited" });
       if (!res.ok) return setLoadState({ status: "error", code: "failed" });
@@ -271,18 +378,18 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
 
   const locate = () => {
     if (!("geolocation" in navigator)) return showToast("error", t("geo.unsupported"));
-    setGeo("loading");
+    setLocating(true);
     // 사용자가 버튼을 눌렀을 때만 권한을 요청하며, 좌표는 서버로 보내거나 저장하지 않습니다.
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setUserLocation({ lng: pos.coords.longitude, lat: pos.coords.latitude });
-        setGeo("idle");
+        setLocating(false);
+        setSortKey("distance");
         showToast("success", t("geo.success"));
       },
       (err) => {
-        setGeo("idle");
-        const key = err.code === err.PERMISSION_DENIED ? "geo.denied" : err.code === err.TIMEOUT ? "geo.timeout" : "geo.unavailable";
-        showToast("error", t(key));
+        setLocating(false);
+        showToast("error", t(err.code === err.PERMISSION_DENIED ? "geo.denied" : err.code === err.TIMEOUT ? "geo.timeout" : "geo.unavailable"));
       },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
     );
@@ -290,7 +397,6 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
 
   const zoom = (type: "zoomIn" | "zoomOut") => setCommand((c) => ({ type, seq: (c?.seq ?? 0) + 1 }));
 
-  // ── 지도 라벨(안정적인 참조로 불필요한 마커 재생성 방지) ───────────────────────
   const nameOf = useCallback((p: AtlasData["places"][number]) => localizePlace(p, lang).name, [lang]);
   const mapLabels = useMemo(
     () => ({
@@ -298,22 +404,21 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
       retry: t("map.retry"),
       me: t("geo.me"),
       loading: t("map.loading"),
+      cluster: (n: number) => t("map.cluster", { n }),
       nameOf,
-      categoryOf: (id: string) => {
-        const c = catById.get(id);
-        return c ? localizeLabel(c, lang) : id;
-      },
     }),
-    [t, nameOf, catById, lang],
+    [t, nameOf],
   );
 
-  const routeGeometry = loadState.status === "ok" && loadState.data.mode === mode ? loadState.data.geometry : null;
+  const walkPath = routeId ? (data.routePaths?.routes[routeId] ?? null) : null;
+  const routeGeometry =
+    loadState.status === "ok" && loadState.data.mode === mode ? loadState.data.geometry : (walkPath?.geometry as LngLat[] | undefined) ?? null;
   const shareTitles = {
     route: activeRoute ? localizeRoute(activeRoute, lang).title : undefined,
     place: selectedPlace ? localizePlace(selectedPlace, lang).name : undefined,
   };
 
-  // ── 패널 내용 (데스크톱 사이드 패널과 모바일 바텀시트가 공유) ─────────────────
+  // ── 패널 조각 ──────────────────────────────────────────────────────────────
   const placeRoutes = selectedPlace ? data.routes.filter((r) => r.placeIds.includes(selectedPlace.id)) : [];
   const detail = selectedPlace && (
     <PlaceDetailPanel
@@ -322,37 +427,94 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
       routes={placeRoutes}
       activeRoute={activeRoute}
       orderInActiveRoute={activeRoute ? activeRoute.placeIds.indexOf(selectedPlace.id) + 1 || undefined : undefined}
+      distanceM={userLocation ? haversineMeters([userLocation.lng, userLocation.lat], [selectedPlace.longitude, selectedPlace.latitude]) : null}
+      favorite={isFavorite(selectedPlace.id)}
+      onToggleFavorite={() => toggleFavorite(selectedPlace.id)}
       onBack={closeDetail}
       onShare={() => openShare("place")}
       onFocusMap={() => {
-        if (!isDesktop) setSheet("collapsed"); // 모바일: 시트를 내려 지도에서 위치를 보여 줍니다
+        if (!isDesktop) setSheet("collapsed");
         bumpFocus();
       }}
       onOpenRoute={selectRoute}
     />
   );
 
+  const browseControls = (
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={toggleFavOnly}
+          aria-pressed={favOnly}
+          data-testid="fav-filter"
+          className={`btn !min-h-10 !px-3 border ${favOnly ? "border-[#e5484d] bg-[#fff1f1] text-[#c4292e]" : "btn-outline"}`}
+        >
+          <Heart aria-hidden="true" className={`size-4 ${favOnly ? "fill-[#e5484d] text-[#e5484d]" : ""}`} />
+          {t("fav.filter")} {favorites.length > 0 && <span className="text-xs">{favorites.length}</span>}
+        </button>
+        <label className="relative ml-auto inline-flex items-center">
+          <span className="sr-only">{t("sort.label")}</span>
+          <ArrowUpDown aria-hidden="true" className="pointer-events-none absolute left-3 size-4 text-[var(--color-muted)]" />
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            data-testid="sort-select"
+            className="h-10 appearance-none rounded-full border border-[var(--color-line)] bg-[var(--color-surface)] pl-9 pr-4 text-sm font-semibold"
+          >
+            <option value="distance">{t("sort.distance")}</option>
+            <option value="name">{t("sort.name")}</option>
+            <option value="recommended">{t("sort.recommended")}</option>
+          </select>
+        </label>
+      </div>
+      {category && subtypes.length > 1 && (
+        <div role="group" aria-label={t("filter.subtype")} className="scrollbar-none -mx-px flex gap-1.5 overflow-x-auto px-px" data-testid="subtype-chips">
+          {subtypes.map((s) => (
+            <button
+              key={s.subtype}
+              type="button"
+              aria-pressed={subtype === s.subtype}
+              onClick={() => changeSubtype(subtype === s.subtype ? null : s.subtype)}
+              className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-full border px-3 text-xs font-semibold transition-colors ${
+                subtype === s.subtype ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent-strong)]" : "border-[var(--color-line)] bg-[var(--color-surface)] hover:bg-[var(--color-sand)]"
+              }`}
+            >
+              {s.subtype} <span className="text-[var(--color-muted)]">{s.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {(areaBounds || stackIds || subtype || favOnly || query) && (
+        <div className="flex flex-wrap gap-1.5" data-testid="active-filters">
+          {stackIds && <FilterTag label={t("stack.tag")} onRemove={() => setStackIds(null)} testId="tag-stack" />}
+          {areaBounds && !stackIds && <FilterTag label={t("area.tag")} onRemove={() => setCustomArea(null)} testId="tag-area" />}
+          {subtype && <FilterTag label={subtype} onRemove={() => changeSubtype(null)} testId="tag-subtype" />}
+          {favOnly && <FilterTag label={t("fav.filter")} onRemove={toggleFavOnly} testId="tag-fav" />}
+          {query && <FilterTag label={`“${query}”`} onRemove={() => changeQuery("")} testId="tag-query" />}
+        </div>
+      )}
+    </div>
+  );
+
   const placesBrowse = (
     <div className="space-y-3">
-      <div className="flex items-center justify-between text-sm text-[var(--color-muted)]">
-        <p role="status" aria-live="polite" data-testid="result-count" className="font-medium">
-          {t("results.count", { n: filtered.length })}
+      <div className="flex items-end justify-between">
+        <p role="status" aria-live="polite" data-testid="result-count" className="text-sm font-bold">
+          {t(stackIds ? "results.stack" : areaBounds ? "results.inArea" : "results.all", { n: listed.length })}
         </p>
-        {hasFilter && (
-          <button type="button" onClick={resetFilters} data-testid="reset-filters" className="btn btn-ghost !min-h-9 !px-3 text-[var(--color-accent-strong)]">
-            {t("filter.reset")}
-          </button>
-        )}
+        <div className="flex items-center gap-2 text-xs text-[var(--color-muted)]">
+          {sortKey === "distance" && <span>{t(userLocation ? "sort.fromMe" : "sort.fromCenter")}</span>}
+          {(hasFilter || areaBounds) && (
+            <button type="button" onClick={resetFilters} data-testid="reset-filters" className="font-semibold text-[var(--color-accent)] hover:underline">
+              {t("filter.reset")}
+            </button>
+          )}
+        </div>
       </div>
-      {hasSamples && (
-        <p className="flex gap-2 rounded-xl bg-[var(--color-accent-soft)] px-3 py-2.5 text-xs leading-relaxed" data-testid="sample-banner">
-          <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[var(--color-accent-strong)]" />
-          {t("sample.banner")}
-        </p>
-      )}
-      {filtered.length === 0 ? (
+      {listed.length === 0 ? (
         <EmptyState
-          title={t("results.empty")}
+          title={favOnly && favorites.length === 0 ? t("fav.empty") : t("results.empty")}
           hint={t("results.emptyHint")}
           action={
             <button type="button" onClick={resetFilters} className="btn btn-outline">
@@ -361,8 +523,26 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
           }
         />
       ) : (
-        <PlaceList places={filtered} categories={data.categories} selectedId={effectiveSelectedId} onSelect={selectPlace} />
+        <>
+          <PlaceList
+            places={listed.slice(0, shownN)}
+            categories={data.categories}
+            selectedId={effectiveSelectedId}
+            origin={sortKey === "distance" || userLocation ? origin : null}
+            isFavorite={isFavorite}
+            onToggleFavorite={toggleFavorite}
+            onSelect={selectPlace}
+          />
+          {listed.length > shownN && (
+            <button type="button" onClick={() => setPage({ key: listKey, n: shownN + PAGE_SIZE })} data-testid="list-more" className="btn btn-outline w-full">
+              {t("list.more", { n: Math.min(PAGE_SIZE, listed.length - shownN) })}
+            </button>
+          )}
+        </>
       )}
+      <p className="pt-2 text-[0.6875rem] leading-relaxed text-[var(--color-muted)]" data-testid="data-footer">
+        {t("data.footer")}
+      </p>
     </div>
   );
 
@@ -377,6 +557,8 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
       routingEnabled={routingEnabled}
       mode={mode}
       loadState={loadState}
+      routePaths={data.routePaths?.routes ?? null}
+      walkingSpeedKmh={data.routePaths?.walkingSpeedKmh ?? null}
       onSelectRoute={selectRoute}
       onBack={backToRoutes}
       onSelectPlace={selectPlace}
@@ -386,134 +568,162 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     />
   );
 
-  // 상세가 열려도 목록은 숨기기만 해서(상태·스크롤 유지) 돌아왔을 때 이어서 탐색할 수 있습니다.
   const panelBody = (
     <div role="tabpanel" aria-labelledby={`tab-${tab}`}>
       {detail}
-      <div hidden={Boolean(selectedPlace)}>{tab === "places" ? placesBrowse : routesBrowse}</div>
+      <div hidden={Boolean(selectedPlace)}>
+        {tab === "places" ? (
+          <div className="space-y-4">
+            {!isDesktop && browseControls}
+            {placesBrowse}
+          </div>
+        ) : (
+          routesBrowse
+        )}
+      </div>
     </div>
   );
 
-  const mapNode = (
-    <ErrorBoundary
-      fallback={(reset) => (
-        <div role="alert" className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-          <p className="text-sm text-[var(--color-muted)]">{t("map.loadFailed")}</p>
-          <button type="button" onClick={reset} className="btn btn-accent">
-            {t("map.retry")}
-          </button>
-        </div>
-      )}
-    >
-      <MapView
-        places={mapPlaces}
-        categories={data.categories}
-        routeStops={routeStops}
-        routeGeometry={routeGeometry}
-        selectedId={effectiveSelectedId}
-        userLocation={userLocation}
-        focusSeq={focusSeq}
-        fitSeq={fitSeq}
-        command={command}
-        bottomInsetRatio={isDesktop ? 0 : sheetInset / Math.max(mainHeight, 1)}
-        styleUrl={siteConfig.map.styleUrl}
-        initialCenter={siteConfig.region.center}
-        initialZoom={siteConfig.region.zoom}
-        labels={mapLabels}
-        onSelectPlace={selectPlace}
-      />
-    </ErrorBoundary>
+  const areaButton = showAreaButton && (
+    <button type="button" onClick={searchThisArea} data-testid="search-area" className="btn btn-primary pointer-events-auto !min-h-10 shadow-[var(--shadow-float)]">
+      <RefreshCw aria-hidden="true" className="size-4" /> {t("area.searchHere")}
+    </button>
   );
 
   return (
-    <div className="flex h-dvh flex-col">
-      <SiteHeader tab={tab} desktop={isDesktop} wide={isWide} query={query} onQuery={changeQuery} onTab={changeTab} onShare={() => openShare()} />
+    <div className="flex h-dvh bg-[var(--color-paper)]">
+      <a href="#main-content" className="sr-only rounded-full bg-[var(--color-ink)] px-4 py-2 text-sm text-white focus:not-sr-only focus:absolute focus:left-4 focus:top-2 focus:z-50">
+        {t("nav.skip")}
+      </a>
 
-      <div className="relative flex min-h-0 flex-1">
-        {isDesktop && (
-          <aside
-            aria-label={t("app.region")}
-            data-testid="side-panel"
-            className="z-10 flex w-[22rem] shrink-0 flex-col border-r border-[var(--color-line)] bg-[var(--color-paper)] lg:w-[26rem] 2xl:w-[30rem]"
-          >
-            {tab === "places" && !selectedPlace && (
-              <div className="shrink-0 space-y-2 px-4 pb-1 pt-3">
-                {!isWide && <SearchBar value={query} onChange={changeQuery} />}
-                <CategoryFilters categories={data.categories} value={category} onChange={changeCategory} />
-              </div>
-            )}
-            <div id="panel-content" className="sheet-scroll min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-3">
-              {panelBody}
+      {isDesktop && (
+        <aside
+          aria-label={t("app.region")}
+          data-testid="side-panel"
+          className="z-10 flex w-[23rem] shrink-0 flex-col border-r border-[var(--color-line)] bg-[var(--color-surface)] lg:w-[26rem] 2xl:w-[28rem]"
+        >
+          <div className="shrink-0 px-4 pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <BrandMark />
+              <LanguageSwitcher />
             </div>
-          </aside>
+            <TabNav tab={tab} onTab={changeTab} variant="underline" className="mt-3" />
+          </div>
+          {tab === "places" && !selectedPlace && (
+            <div className="shrink-0 space-y-2.5 border-b border-[var(--color-line)] px-4 pb-3 pt-3">
+              <SearchBar value={query} onChange={changeQuery} />
+              <CategoryFilters categories={data.categories} value={category} onChange={changeCategory} />
+              {browseControls}
+            </div>
+          )}
+          <div id="panel-content" className="sheet-scroll min-h-0 flex-1 overflow-y-auto bg-[var(--color-paper)] px-4 pb-6 pt-3">
+            {panelBody}
+          </div>
+        </aside>
+      )}
+
+      <main
+        id="main-content"
+        ref={mainRef}
+        aria-label={t("map.label")}
+        className="relative min-w-0 flex-1 overflow-hidden"
+        style={{ ["--sheet-inset" as string]: `${sheetInset}px` }}
+      >
+        <ErrorBoundary
+          fallback={(reset) => (
+            <div role="alert" className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+              <p className="text-sm text-[var(--color-muted)]">{t("map.loadFailed")}</p>
+              <button type="button" onClick={reset} className="btn btn-accent">
+                {t("map.retry")}
+              </button>
+            </div>
+          )}
+        >
+          <MapView
+            places={tab === "places" ? filtered : data.places}
+            categories={data.categories}
+            routeStops={routeStops}
+            routeGeometry={routeGeometry}
+            selectedId={effectiveSelectedId}
+            userLocation={userLocation}
+            focusSeq={focusSeq}
+            fitSeq={fitSeq}
+            command={command}
+            bottomInsetRatio={isDesktop ? 0 : sheetInset / Math.max(mainHeight, 1)}
+            styleUrl={siteConfig.map.styleUrl}
+            initialCenter={siteConfig.region.center}
+            initialZoom={siteConfig.region.zoom}
+            labels={mapLabels}
+            onSelectPlace={selectPlace}
+            onViewChange={onViewChange}
+            onStackPick={onStackPick}
+          />
+        </ErrorBoundary>
+
+        {/* 데스크톱: 지도 위 상단 — 이 지역 다시 찾기 + 공유 */}
+        {isDesktop && (
+          <>
+            <div className="pointer-events-none absolute inset-x-0 top-4 z-10 flex justify-center">{areaButton}</div>
+            <div className="absolute right-4 top-4 z-10">
+              <button type="button" onClick={() => openShare()} data-testid="share-button" aria-label={t("header.share")} className="btn btn-accent shadow-[var(--shadow-float)]">
+                <Share2 aria-hidden="true" className="size-4" />
+                <span>{t("header.share")}</span>
+              </button>
+            </div>
+          </>
         )}
 
-        <main
-          id="main-content"
-          ref={mainRef}
-          aria-label={t("map.label")}
-          className="relative min-w-0 flex-1 overflow-hidden"
-          style={{ ["--sheet-inset" as string]: `${sheetInset}px` }}
-        >
-          {mapNode}
-
-          {/* 모바일: 지도 위 검색 바 + 테마 칩 */}
-          {!isDesktop && (
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 space-y-1 p-3">
-              <SearchBar value={query} onChange={changeQuery} enableShortcut={false} className="pointer-events-auto" />
-              {tab === "places" && <CategoryFilters categories={data.categories} value={category} onChange={changeCategory} floating className="pointer-events-auto -mx-3 px-3" />}
+        {/* 모바일: 떠 있는 헤더 카드 + 검색 + 칩 */}
+        {!isDesktop && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 space-y-2 p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <div className="pointer-events-auto flex items-center gap-2 rounded-[var(--radius-card)] bg-[var(--color-surface)] px-3 py-2 shadow-[var(--shadow-float)]">
+              <div className="min-w-0 flex-1">
+                <BrandMark />
+              </div>
+              <LanguageSwitcher />
+              <button type="button" onClick={() => openShare()} data-testid="share-button" aria-label={t("header.share")} className="btn btn-accent !px-3">
+                <Share2 aria-hidden="true" className="size-4" />
+              </button>
             </div>
-          )}
+            <SearchBar value={query} onChange={changeQuery} enableShortcut={false} className="pointer-events-auto" />
+            {tab === "places" && <CategoryFilters categories={data.categories} value={category} onChange={changeCategory} floating className="pointer-events-auto -mx-3 px-3" />}
+          </div>
+        )}
 
-          {/* 지도 컨트롤: 모바일에서는 바텀시트 위로 따라 올라갑니다 */}
-          <div
-            className="absolute right-3 z-10 transition-[bottom] duration-200"
-            style={{ bottom: isDesktop ? "2.5rem" : `calc(${sheetInset}px + 2.5rem)` }}
-            data-testid="map-controls"
+        <div className="absolute right-3 z-10 transition-[bottom] duration-200" style={{ bottom: isDesktop ? "2.5rem" : `calc(${sheetInset}px + 2.5rem)` }} data-testid="map-controls">
+          <MapControls locating={locating} onLocate={locate} onZoomIn={() => zoom("zoomIn")} onZoomOut={() => zoom("zoomOut")} onReset={bumpFit} />
+        </div>
+
+        {!isDesktop && (
+          <div className="pointer-events-none absolute inset-x-0 z-10 flex justify-center gap-2 transition-[bottom] duration-200" style={{ bottom: `calc(${sheetInset}px + 2.5rem)` }}>
+            {sheet === "collapsed" ? <ListToggle showingList={false} onToggle={() => setSheet("half")} /> : areaButton || <ListToggle showingList onToggle={() => setSheet("collapsed")} />}
+          </div>
+        )}
+
+        <div className="pointer-events-none absolute inset-x-0 top-[12rem] z-30 flex justify-center px-3 md:top-16">
+          <Toast toast={toast} onDismiss={dismissToast} />
+        </div>
+
+        {!online && (
+          <p role="status" data-testid="offline-banner" className="absolute left-1/2 top-[12rem] z-20 -translate-x-1/2 rounded-full bg-[var(--color-ink)] px-4 py-1.5 text-xs font-medium text-white md:top-16">
+            {t("net.offline")}
+          </p>
+        )}
+
+        {!isDesktop && (
+          <MobileBottomSheet
+            state={sheet}
+            onState={setSheet}
+            containerHeight={mainHeight}
+            dragHeight={dragHeight}
+            onDragHeight={setDragHeight}
+            label={t("app.region")}
+            tabs={<TabNav tab={tab} onTab={changeTab} className="justify-center" />}
           >
-            <MapControls
-              locating={geo === "loading"}
-              onLocate={locate}
-              onZoomIn={() => zoom("zoomIn")}
-              onZoomOut={() => zoom("zoomOut")}
-              onReset={bumpFit}
-            />
-          </div>
-
-          {!isDesktop && (
-            <div
-              className="pointer-events-none absolute inset-x-0 z-10 flex justify-center transition-[bottom] duration-200"
-              style={{ bottom: `calc(${sheetInset}px + 2.5rem)` }}
-            >
-              <ListToggle showingList={sheet !== "collapsed"} onToggle={() => setSheet((s) => (s === "collapsed" ? "half" : "collapsed"))} />
-            </div>
-          )}
-
-          <div className="pointer-events-none absolute inset-x-0 top-[7.5rem] z-30 flex justify-center px-3 md:top-4">
-            <Toast toast={toast} onDismiss={dismissToast} />
-          </div>
-
-          {!online && (
-            <p role="status" data-testid="offline-banner" className="absolute left-1/2 top-[7.5rem] z-20 -translate-x-1/2 rounded-full bg-[var(--color-ink)] px-4 py-1.5 text-xs font-medium text-white md:top-4">
-              {t("net.offline")}
-            </p>
-          )}
-
-          {!isDesktop && (
-            <MobileBottomSheet
-              state={sheet}
-              onState={setSheet}
-              containerHeight={mainHeight}
-              dragHeight={dragHeight}
-              onDragHeight={setDragHeight}
-              label={t("app.region")}
-              tabs={<TabNav tab={tab} onTab={changeTab} className="justify-center" />}
-            >
-              {panelBody}
-            </MobileBottomSheet>
-          )}
-        </main>
-      </div>
+            {panelBody}
+          </MobileBottomSheet>
+        )}
+      </main>
 
       <ShareDialog
         open={shareOpen}

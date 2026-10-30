@@ -1,32 +1,32 @@
 [
   {
-    "routeId": "cafe-alley-walk",
-    "titleKo": "감성 카페와 골목 산책",
-    "titleEn": "Café Hopping & Alley Stroll",
-    "descriptionKo": "로스터리에서 시작해 벽화 골목을 지나 달빛 디저트로 마무리하는 느린 오후 코스입니다. (가상 샘플 코스)",
-    "descriptionEn": "A slow afternoon from a roastery through a mural lane to moonlit desserts. (Fictional sample route)",
-    "theme": "cafe-alley",
-    "placeIds": ["cafe-ivy", "cafe-lantern", "food-noodle-alley", "cafe-bakery-sol", "landmark-mural", "cafe-rooftop", "cafe-moon"],
-    "transportMode": "walking"
-  },
-  {
     "routeId": "history-tour",
-    "titleKo": "역사문화 탐방 코스",
-    "titleEn": "History & Culture Tour",
-    "descriptionKo": "성문터에서 고요사까지 동네의 시간을 따라 걷고 한상 식당에서 식사하는 코스입니다. (가상 샘플 코스)",
-    "descriptionEn": "Walk through the neighborhood's past from the old gate to Goyo Temple, then dine at Hansang Table. (Fictional sample route)",
+    "titleKo": "경기전 역사 산책",
+    "titleEn": "Gyeonggijeon History Walk",
+    "descriptionKo": "전주객사와 전라감영 터에서 출발해 풍남문, 전동성당을 지나 경기전·어진박물관·조경묘까지 걷는 조선 역사 코스입니다.",
+    "descriptionEn": "A Joseon-era history walk from Jeonju Gaeksa and the Jeolla Gamyeong site, past Pungnammun Gate and Jeondong Cathedral, to Gyeonggijeon, the Royal Portrait Museum and Jogyeongmyo Shrine.",
     "theme": "history",
-    "placeIds": ["history-gate", "history-hall", "history-hanok-row", "history-museum", "history-well", "history-temple", "food-hansang"],
+    "placeIds": ["osm-n5779610454", "osm-w157646835", "osm-w157646770", "osm-w107158675", "osm-w36524723", "osm-w425282023", "osm-n11968213772"],
     "transportMode": "walking"
   },
   {
-    "routeId": "nature-weekend",
-    "titleKo": "주말 자연·휴식 코스",
-    "titleEn": "Weekend Nature & Rest",
-    "descriptionKo": "맑은내 산책로에서 별보기 전망대까지 천천히 걷고 숲속 찻집에서 쉬어 가는 코스입니다. (가상 샘플 코스)",
-    "descriptionEn": "Stroll from Clearstream Walk to the Stargazing Deck and rest at a forest tea room. (Fictional sample route)",
+    "routeId": "culture-walk",
+    "titleKo": "한옥마을 전통문화 산책",
+    "titleEn": "Hanok Village Heritage Walk",
+    "descriptionKo": "동학혁명기념관과 은행나무를 지나 전통술·한지·공예·고가구 전시관을 차례로 둘러보는 한옥마을 안쪽 코스입니다.",
+    "descriptionEn": "A walk through the heart of the Hanok Village: the Donghak Revolution Memorial Hall, an old ginkgo tree, and museums of traditional liquor, hanji paper, crafts and antique furniture.",
+    "theme": "landmark",
+    "placeIds": ["osm-n368635911", "osm-n1232013082", "osm-n368735878", "osm-n11909693756", "osm-n13800568701", "osm-n368898160", "osm-n368898244"],
+    "transportMode": "walking"
+  },
+  {
+    "routeId": "riverside-view",
+    "titleKo": "오목대에서 전주천까지",
+    "titleEn": "From Omokdae to the Jeonjucheon Stream",
+    "descriptionKo": "한옥 지붕 전망대와 오목대·이목대에서 마을을 내려다본 뒤 자만벽화마을과 전주향교를 지나 전주천 변의 한벽당·청연루로 내려가는 풍경 코스입니다.",
+    "descriptionEn": "Look over the village from the hanok-roof viewpoint, Omokdae and Imokdae, then pass Jaman Mural Village and Jeonju Hyanggyo down to Hanbyeokdang and Cheongyeonnu by the Jeonjucheon stream.",
     "theme": "nature-rest",
-    "placeIds": ["nature-stream", "nature-pond", "nature-forest", "food-picnic", "nature-hill", "landmark-deck", "cafe-forest"],
+    "placeIds": ["osm-n13800625101", "osm-w382873000", "osm-n10899384779", "osm-n9875614917", "osm-w36771648", "osm-n1253345304", "osm-w1420912958"],
     "transportMode": "walking"
   }
 ]

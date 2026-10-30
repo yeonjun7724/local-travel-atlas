@@ -9,11 +9,11 @@ export const siteConfig = {
     taglineEn: "My Neighborhood Travel Map",
   },
   region: {
-    nameKo: "예시 동네 (가상 샘플)",
-    nameEn: "Sample Neighborhood (Fictional)",
+    nameKo: "전주 한옥마을 일대",
+    nameEn: "Jeonju Hanok Village",
     // [경도, 위도] — MapLibre 순서
-    center: [127.153, 35.815] as [number, number],
-    zoom: 14.5,
+    center: [127.1515, 35.8152] as [number, number],
+    zoom: 15.6,
   },
   map: {
     styleUrl:

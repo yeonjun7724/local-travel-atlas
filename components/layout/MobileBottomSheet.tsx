@@ -9,9 +9,10 @@ const ORDER: SheetState[] = ["collapsed", "half", "full"];
 /** 시트가 지도(main) 안에서 차지하는 높이(px). 지도 컨테이너 높이에 비례합니다. */
 export function sheetSnaps(containerHeight: number): Record<SheetState, number> {
   const collapsed = 124;
-  const half = Math.max(collapsed + 80, Math.round(containerHeight * 0.46));
+  // 위쪽 떠 있는 헤더 카드·검색 바·테마 칩(약 184px)은 전체 단계에서도 가리지 않습니다.
+  const half = Math.max(collapsed + 80, Math.round(containerHeight * 0.42));
   // 전체 상태에서도 위쪽 검색 바·테마 칩(약 112px)은 가리지 않습니다.
-  const full = Math.max(half + 40, containerHeight - 116);
+  const full = Math.max(half + 40, containerHeight - 184);
   return { collapsed, half, full };
 }
 
@@ -37,6 +38,9 @@ export function MobileBottomSheet({ state, onState, containerHeight, dragHeight,
   const snaps = sheetSnaps(containerHeight);
   const height = dragHeight ?? snaps[state];
   const gesture = useRef<{ startY: number; startH: number; startT: number; moved: boolean } | null>(null);
+  /** 드래그가 끝난 직후 따라오는 click 을 무시하기 위한 표시 */
+  const suppressClick = useRef(false);
+  const cycle = () => onState(state === "half" ? "full" : state === "full" ? "collapsed" : "half");
 
   const nearest = (h: number, velocityPxPerMs: number): SheetState => {
     // 빠르게 던지면 방향 쪽으로 관성을 더해 다음 단계로 보냅니다.
@@ -46,6 +50,7 @@ export function MobileBottomSheet({ state, onState, containerHeight, dragHeight,
 
   const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
+    suppressClick.current = false; // 이전 드래그 뒤 click 이 오지 않았던 경우 대비
     gesture.current = { startY: e.clientY, startH: height, startT: performance.now(), moved: false };
   };
   const onPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -58,12 +63,8 @@ export function MobileBottomSheet({ state, onState, containerHeight, dragHeight,
   const onPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
     const g = gesture.current;
     gesture.current = null;
-    if (!g) return;
-    if (!g.moved) {
-      // 탭: 단계 순환 (half → full → collapsed → half)
-      onState(state === "half" ? "full" : state === "full" ? "collapsed" : "half");
-      return;
-    }
+    if (!g || !g.moved) return; // 탭은 click 에서 처리합니다(마우스·터치·키보드 공통)
+    suppressClick.current = true;
     const dt = Math.max(1, performance.now() - g.startT);
     const finalH = Math.min(snaps.full, Math.max(snaps.collapsed, g.startH + (g.startY - e.clientY)));
     onState(nearest(finalH, (g.startY - e.clientY) / dt));
@@ -104,9 +105,13 @@ export function MobileBottomSheet({ state, onState, containerHeight, dragHeight,
           onDragHeight(null);
         }}
         onKeyDown={onKeyDown}
-        // 키보드(Enter/Space)로 누르면 detail===0 → 단계 순환. 포인터 탭은 pointerup 에서 이미 처리했습니다.
-        onClick={(e) => {
-          if (e.detail === 0) onState(state === "half" ? "full" : state === "full" ? "collapsed" : "half");
+        // 탭·클릭·Enter/Space → 단계 순환 (half → full → collapsed → half). 드래그 직후의 click 은 무시
+        onClick={() => {
+          if (suppressClick.current) {
+            suppressClick.current = false;
+            return;
+          }
+          cycle();
         }}
         style={{ touchAction: "none" }}
         className="flex h-9 w-full shrink-0 cursor-grab items-center justify-center rounded-t-[var(--radius-panel)] active:cursor-grabbing"

@@ -9,7 +9,8 @@
 
 ## 선수 준비사항
 - 2차시 기획안, 구글 시트/엑셀 또는 VS Code.
-- 강사 제공 `data/places.csv` 샘플(가상 30곳)과 `npm run validate:data` 가 실행되는 템플릿.
+- 강사 제공 샘플 `data/samples/places.sample.csv`(가상 30곳)와 `npm run validate:data` 가 실행되는 템플릿.
+- (참고) 완성본 `data/places.csv` 는 소상공인시장진흥공단 상가정보 + OpenStreetMap 으로 만든 **실데이터 1,222곳**입니다. 공공데이터를 쓰면 어떤 열(출처·라이선스·원본 링크)을 남기는지 보여 주는 예시로 활용하세요.
 
 ## 강사 설명 핵심 개념
 1. **데이터 출처 3종**: ① 직접 답사(가장 안전) ② 공공데이터포털·한국관광공사 TourAPI 등(**이용허락범위 확인**) ③ 지도·SNS 사진·리뷰 복사는 **금지**(저작권·약관).
@@ -19,7 +20,7 @@
 5. 샘플 30곳은 **가상 데이터**(`isSample=true`). 실제 데이터로 바꿀 때 `false`.
 
 ## 단계별 실습
-1. `data/places.csv` 를 복사해 백업(`places.sample.csv`)하고, 내 동네 장소 **5곳**부터 직접 입력(나머지는 숙제로 30곳).
+1. `data/samples/places.sample.csv` 를 `data/places.csv` 로 복사한 뒤(완성본 실데이터를 쓰는 경우 먼저 백업), 내 동네 장소 **5곳**부터 직접 입력(나머지는 숙제로 30곳).
 2. 각 장소: 이름·좌표·주소·한 줄 설명·`source`(예: "직접 답사 2026-10-12")·`license`(예: "직접 작성").
 3. CSV UTF-8 로 저장.
 4. 터미널에서 `npm run validate:data` 실행 → `✅` 또는 `❌ places.csv ○행 …` 확인 후 수정.

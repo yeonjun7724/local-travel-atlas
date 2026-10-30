@@ -31,7 +31,8 @@ const mk = (o: Partial<Place>): Place => ({
   id: "a", nameKo: "카페 가", nameEn: "Cafe A", latitude: 0, longitude: 0, category: "cafe", theme: "t",
   descriptionKo: "설명", descriptionEn: "", address: "주소", imageUrl: "", source: "s", license: "l",
   tags: ["커피"], isSample: false, openingHours: undefined, externalUrl: undefined,
-  recommendedDurationMinutes: undefined, updatedAt: undefined, ...o,
+  recommendedDurationMinutes: undefined, updatedAt: undefined, sourceUrl: undefined, descriptionSource: undefined,
+  descriptionSourceUrl: undefined, imageCredit: undefined, imageSourceUrl: undefined, wikidata: undefined, subtype: undefined, ...o,
 });
 
 describe("필터/검색", () => {

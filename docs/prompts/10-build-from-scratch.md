@@ -42,7 +42,18 @@ data/routes.json 의 추천 코스 3종을 보여 주는 '추천 코스' 탭을 
 - 점선이 실제 도로 경로가 아니라 직선 연결선이라는 안내 문구를 코스 화면에 항상 보여 주세요. 이동시간을 표시하지 마세요(이번 단계에서는 API 없음).
 ```
 
-## 8차시 — 이동시간 (선택)
+## 8차시 — OSMnx 실제 도보 경로 (Python)
+```text
+data/routes.json 의 코스마다 OSMnx 로 실제 도보 경로를 계산하는 스크립트 scripts/data-pipeline/build_routes.py 를 만들어 주세요.
+- data/places.csv 에서 방문지 좌표를 읽고, 코스 범위 + 약 400m 여유의 보행 네트워크를 ox.graph_from_bbox(network_type="walk") 로 받습니다.
+- 각 방문지를 ox.distance.nearest_nodes 로 가장 가까운 노드에 연결하고, 구간마다 networkx.shortest_path(weight="length") 로 최단 경로를 구합니다.
+- 간선의 geometry(곡선)를 이어 붙여 [경도, 위도] 좌표 목록을 만들고, 구간별 거리(m)와 시속 4.5km 기준 '추정' 시간(초)을 계산합니다.
+- 결과를 data/route-paths.json 으로 저장합니다: { generatedAt, source, license: "ODbL 1.0", walkingSpeedKmh, routes: { routeId: { totalDistanceM, totalDurationS, segments[], geometry[] } } }
+- Overpass 서버가 502 를 주면 간격을 늘리며 재시도하세요. API 키는 필요 없습니다.
+- 웹 앱(Zod 스키마)에서 이 파일을 읽어 코스 경로선과 구간 거리를 표시하고, 파일이 없으면 직선 연결선으로 대체되게 해 주세요.
+```
+
+## 8차시 — 다른 이동수단 (선택 · OpenRouteService)
 ```text
 선택 기능으로 OpenRouteService 실제 경로·이동시간을 추가해 주세요.
 - 서버 API Route(app/api/route/route.ts): POST {routeId, mode(walking|driving)} 만 받고 Zod 로 검증, 좌표는 서버가 data/ 에서 조회(클라이언트 좌표 신뢰 금지).

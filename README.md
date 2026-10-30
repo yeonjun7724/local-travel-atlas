@@ -9,16 +9,29 @@
 |---|---|
 | ![데스크톱](docs/screenshots/desktop-1280.png) | ![모바일](docs/screenshots/mobile-430.png) |
 
-> ⚠️ **샘플 데이터 안내** — 이 저장소의 장소 30곳과 코스 3종은 **교육용 가상 샘플**입니다. 실제 가게·관광지 정보가 아닙니다(화면에 "가상 샘플" 배지와 안내 배너가 표시됩니다). 지도 배경은 실제 지도(OpenStreetMap)이므로 가상 장소 근처에 실제 지명이 보일 수 있습니다. 여러분의 실제 동네 데이터로 교체해 사용하세요.
+> 📍 **실데이터 기반** — 전주 한옥마을 일대 **1,222곳**(2026-10-30 수집)과 실제 도보 경로 3개 코스를 담고 있습니다.
+>
+> | 데이터 | 출처 | 라이선스 |
+> |---|---|---|
+> | 음식점·카페 1,176곳 | 소상공인시장진흥공단 상가(상권)정보 (2026-06 기준) | 공공데이터, 이용허락범위 제한 없음 |
+> | 역사·명소·자연 46곳 | OpenStreetMap (Overpass API), 주소는 Nominatim | ODbL 1.0 |
+> | 다국어 이름·사진 연결 | Wikidata | CC0 |
+> | 장소 설명(일부) | 위키백과 | CC BY-SA 4.0 (출처 링크 표기) |
+> | 사진(일부) | Wikimedia Commons | 파일별 라이선스·저작자 표기 |
+> | 코스 도보 경로 | OpenStreetMap 보행 네트워크 + **OSMnx** 최단경로 | ODbL 1.0 |
+>
+> 평점·가격·리뷰처럼 출처가 없는 정보는 만들지 않습니다. 사진이 없는 장소는 카테고리 플레이스홀더를 보여 줍니다. 상가 데이터는 등록 업종 기준이라 실제 영업 여부와 다를 수 있습니다.
 
 ## 1. 무엇을 할 수 있나요
 
 | 기능 | 설명 |
 |---|---|
-| 인터랙티브 지도 | 카테고리 아이콘 마커, 확대/축소·내 위치·처음 위치 컨트롤, 선택 마커 강조·팝업, 지도 로딩 스켈레톤 |
-| 테마 필터·검색 | 맛집/카페/자연·산책/역사·문화/관광명소, 장소명·태그 검색, 결과 수·빈 결과 안내 |
+| 인터랙티브 지도 | 1,200여 곳을 클러스터(숫자)로 묶어 표시 → 누르면 확대, 카테고리 아이콘 핀(확대 시 이름), 확대/축소·내 위치·처음 위치 |
+| 지도 영역 탐색 | "현재 지도 영역"의 장소만 목록에 표시, 지도를 옮기면 **이 지역에서 다시 찾기** |
+| 정렬·찜 | 가까운순(내 위치/지도 중심 기준 거리 표시)·이름순·분류순, ♥ 찜(이 브라우저에만 저장) |
+| 테마·세부 종류 필터·검색 | 맛집/카페/자연·산책/역사·문화/관광명소, 장소명·태그 검색, 결과 수·빈 결과 안내 |
 | 장소 상세 | 마커·목록 어디서 열어도 같은 상세 패널(모바일은 바텀시트): 설명, 주소, 영업정보, 태그, 포함된 코스, 출처·라이선스, 길찾기, 공유 |
-| 추천 코스 3종 | 방문 순서 번호 마커 + 장소 간 **직선 연결선**(실제 도로 경로 아님을 화면에 표시) |
+| 추천 코스 3종 | 번호 핀 + **OSMnx 로 계산한 실제 도보 경로**, 총·구간별 거리와 추정 시간(4.5km/h) |
 | 이동시간(선택) | OpenRouteService 키가 있으면 도보/차량 실제 경로·구간별 시간·거리 표시. 키가 없으면 제공하지 않으며 지어내지 않습니다 |
 | 내 위치 | 버튼을 눌렀을 때만 위치 권한 요청, 서버에 저장하지 않음 |
 | 한국어/영어 | 새로고침해도 유지, 영어 번역이 없으면 한국어로 대체 + 안내 |
@@ -106,6 +119,24 @@ npm run validate:data
 
 [data/routes.json](data/routes.json) 에서 `placeIds` 의 **순서가 곧 방문 순서**입니다. 장소 id는 CSV에 있는 것만 쓸 수 있고, 코스당 2곳 이상(권장 5~8곳)입니다.
 
+## 5-1. 실데이터 다시 수집하기 (선택 · Python)
+
+웹 앱은 저장소의 `data/` 파일만 읽습니다. **실행·배포에 API 키가 필요 없습니다.** 데이터를 갱신할 때만 아래를 실행합니다.
+
+```bash
+python -m venv .venv
+.venv/Scripts/pip install -r scripts/data-pipeline/requirements.txt   # macOS/Linux: .venv/bin/pip
+# (선택) .env.local 에 SEMAS_SERVICE_KEY=<공공데이터포털 일반 인증키(Decoding)>  — 없으면 음식점·카페는 OSM 데이터 사용
+.venv/Scripts/python scripts/data-pipeline/fetch_places.py   # → data/places.csv
+.venv/Scripts/python scripts/data-pipeline/build_routes.py   # → data/route-paths.json (OSMnx 실제 도보 경로)
+npm run validate:data
+```
+
+- 수집 범위(BBOX)는 `fetch_places.py` 상단, 지도 중심은 `config/site.ts` 에서 바꿉니다.
+- 공용 Overpass 서버는 혼잡하면 502 를 반환합니다 → 스크립트가 자동으로 재시도합니다.
+- 코스(`data/routes.json`)를 바꾸면 `build_routes.py` 를 다시 실행해야 경로가 갱신됩니다(구간 수가 다르면 검증이 알려 줌).
+- 응답은 `scripts/data-pipeline/cache/` 에 저장되어 재실행 시 재사용됩니다(Git 제외).
+
 ## 6. Vercel 배포 (요약)
 
 1. GitHub에 저장소를 올립니다 → 2. [vercel.com](https://vercel.com) 에서 **Add New → Project → 저장소 Import** → 3. (선택) Environment Variables에 `ORS_API_KEY` 등록 → 4. **Deploy** → 5. 나온 주소를 열어 확인.
@@ -145,5 +176,7 @@ npm run validate:data
 ## 9. 라이선스·출처
 
 - 지도 © [OpenFreeMap](https://openfreemap.org) © [OpenMapTiles](https://openmaptiles.org) · 데이터 © [OpenStreetMap](https://www.openstreetmap.org/copyright) 기여자 (지도 화면 오른쪽 아래에 항상 표시)
-- 샘플 장소 데이터: 교육용 가상 데이터(라이선스 `SAMPLE-FICTIONAL`)
+- 장소: OpenStreetMap 기여자(ODbL 1.0) · 소상공인시장진흥공단 상가(상권)정보(공공데이터) · Wikidata(CC0) · 위키백과(CC BY-SA 4.0, 장소별 출처 링크) · 사진 Wikimedia Commons(파일별 저작자·라이선스 표기)
+- 도보 경로: OpenStreetMap 보행 네트워크 + OSMnx(MIT)
+- 강의용 가상 샘플 30곳은 `data/samples/` 에 별도로 보관합니다(앱은 읽지 않음, 3~7차시 실습용).
 - 코드는 강의 실습용으로 자유롭게 수정할 수 있습니다.

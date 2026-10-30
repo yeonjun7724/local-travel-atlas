@@ -9,13 +9,20 @@
 5. 로컬에서 `npm run dev` 로 눈으로 확인.
 6. `git add data && git commit -m "…" && git push` → Vercel 자동 재배포 확인.
 
+## 1-1. 실데이터 정기 갱신 (분기 1회 권장)
+
+1. `.venv/Scripts/python scripts/data-pipeline/fetch_places.py` — 진흥공단 상가정보(분기 갱신)·OSM 변경 반영
+2. `.venv/Scripts/python scripts/data-pipeline/build_routes.py` — 도보 경로 재계산
+3. `npm run validate:data` → `git diff --stat data/` 로 변화량 확인 → 커밋·푸시
+4. 진흥공단 키는 `.env.local` 에만 두고 Vercel 에는 등록하지 않습니다(빌드에 불필요).
+
 ## 2. 장소 추가 체크리스트
 
 - [ ] 좌표를 지도에서 **직접 확인**(주소와 마커가 맞는지)
 - [ ] `source`(출처: 직접 답사/공공데이터 이름·URL)와 `license`(이용조건) 기록
 - [ ] 사진은 **직접 촬영·허가된 것**만 (`public/images/`, `imageUrl=/images/…`)
 - [ ] `updatedAt` 에 확인한 날짜
-- [ ] 샘플을 실제 데이터로 바꿨으면 `isSample=false` (모든 장소가 false 면 "가상 샘플" 배너가 사라짐)
+- [ ] 직접 추가한 장소는 `isSample=false`, 출처 링크(`sourceUrl`)를 함께 기록
 - [ ] 영어 이름·설명 검토(자동 번역은 지명·상호명을 틀리기 쉬움). 비워 두면 한국어로 표시됨
 
 ## 3. 코스 변경

@@ -5,7 +5,7 @@ import { useI18n } from "@/components/common/I18nProvider";
 import { PlaceCard } from "@/components/places/PlaceCard";
 import { formatDuration, type RouteResult, type TransportMode } from "@/lib/routing/ors";
 import { localizeLabel, localizeRoute } from "@/lib/i18n";
-import type { Category, Place, Route, Theme } from "@/lib/validation/schemas";
+import type { Category, Place, Route, RoutePath, Theme } from "@/lib/validation/schemas";
 
 export type RouteLoadState =
   | { status: "idle" }
@@ -23,6 +23,9 @@ interface Props {
   routingEnabled: boolean;
   mode: TransportMode;
   loadState: RouteLoadState;
+  /** OSMnx 로 미리 계산한 실제 도보 경로 (routeId → 경로) */
+  routePaths: Record<string, RoutePath> | null;
+  walkingSpeedKmh: number | null;
   onSelectRoute: (id: string) => void;
   onBack: () => void;
   onSelectPlace: (id: string) => void;
@@ -106,7 +109,7 @@ export function RouteExplorer(p: Props) {
                       <span className="grid size-6 place-items-center rounded-full bg-[var(--color-accent-soft)]">{i + 1}</span>
                       {theme ? localizeLabel(theme, lang) : r.theme}
                     </span>
-                    <span className="mt-2 block font-[family-name:var(--font-display)] text-xl font-bold leading-snug">{title}</span>
+                    <span className="mt-2 block text-xl font-bold leading-snug">{title}</span>
                     <span className="mt-1.5 line-clamp-2 block text-sm leading-relaxed text-[var(--color-muted)]">{description}</span>
                     <span className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
                       <span className="inline-flex items-center gap-1">
@@ -116,6 +119,15 @@ export function RouteExplorer(p: Props) {
                         {r.transportMode === "walking" ? <Footprints aria-hidden="true" className="size-3.5" /> : <Car aria-hidden="true" className="size-3.5" />}
                         {t(r.transportMode === "walking" ? "route.walking" : "route.driving")}
                       </span>
+                      {p.routePaths?.[r.routeId] && (
+                        <span className="inline-flex items-center gap-1 font-semibold text-[var(--color-accent)]" data-testid={`route-walk-${r.routeId}`}>
+                          <Clock aria-hidden="true" className="size-3.5" />
+                          {t("route.walkSummary", {
+                            d: `${(p.routePaths[r.routeId].totalDistanceM / 1000).toFixed(1)}${t("unit.km")}`,
+                            t: `${Math.max(1, Math.round(p.routePaths[r.routeId].totalDurationS / 60))}${t("unit.min")}`,
+                          })}
+                        </span>
+                      )}
                       {stay !== null && (
                         <span className="inline-flex items-center gap-1">
                           <Clock aria-hidden="true" className="size-3.5" /> {t("route.duration", { n: stay })}
@@ -135,6 +147,8 @@ export function RouteExplorer(p: Props) {
   const { title, description } = localizeRoute(active, lang);
   const stops = active.placeIds.map((id) => p.placesById.get(id)).filter((x): x is Place => Boolean(x));
   const real = p.loadState.status === "ok" ? p.loadState.data : null;
+  const walk = p.routePaths?.[active.routeId] ?? null;
+  const segments = real?.segments ?? walk?.segments ?? null;
   const stay = stayMinutes(active, p.placesById);
 
   return (
@@ -149,7 +163,7 @@ export function RouteExplorer(p: Props) {
       </div>
 
       <div>
-        <h2 id="route-title" className="font-[family-name:var(--font-display)] text-[1.625rem] font-bold leading-tight" data-testid="route-title">
+        <h2 id="route-title" className="text-[1.625rem] font-bold leading-tight" data-testid="route-title">
           {title}
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-[var(--color-muted)]">{description}</p>
@@ -160,7 +174,21 @@ export function RouteExplorer(p: Props) {
       </div>
 
       {/* 기본 모드(직선) vs 확장 모드(실제 경로)를 명확히 구분해서 안내합니다 */}
-      {!real && (
+      {!real && walk && (
+        <div className="rounded-[var(--radius-card)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4" data-testid="walk-summary">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-accent)]">
+            <Footprints aria-hidden="true" className="size-4" /> {t("route.realPath")}
+          </p>
+          <p className="mt-1 text-lg font-bold">
+            {t("route.walkSummary", {
+              d: `${(walk.totalDistanceM / 1000).toFixed(1)}${t("unit.km")}`,
+              t: `${Math.max(1, Math.round(walk.totalDurationS / 60))}${t("unit.min")}`,
+            })}
+          </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-[var(--color-muted)]">{t("route.realPathNotice", { kmh: p.walkingSpeedKmh ?? 4.5 })}</p>
+        </div>
+      )}
+      {!real && !walk && (
         <p className="rounded-xl bg-[var(--color-accent-soft)] px-3 py-2.5 text-xs leading-relaxed" data-testid="straight-notice">
           {t("route.straightNotice")}
         </p>
@@ -168,6 +196,7 @@ export function RouteExplorer(p: Props) {
 
       {p.routingEnabled ? (
         <div className="space-y-2">
+          <p className="text-xs font-semibold text-[var(--color-muted)]">{t("route.optionalDriving")}</p>
           <div role="group" aria-label={t("route.mode")} className="flex gap-2">
             {(["walking", "driving"] as const).map((m) => (
               <button
@@ -193,9 +222,11 @@ export function RouteExplorer(p: Props) {
           )}
         </div>
       ) : (
-        <p className="text-xs leading-relaxed text-[var(--color-muted)]" data-testid="routing-disabled">
-          {t("route.notConfigured")}
-        </p>
+        !walk && (
+          <p className="text-xs leading-relaxed text-[var(--color-muted)]" data-testid="routing-disabled">
+            {t("route.notConfigured")}
+          </p>
+        )
       )}
 
       {p.loadState.status === "error" && p.loadState.code !== "not_configured" && (
@@ -228,9 +259,10 @@ export function RouteExplorer(p: Props) {
         {stops.map((s, i) => (
           <li key={s.id} className="space-y-1.5">
             <PlaceCard place={s} category={catById.get(s.category)} order={i + 1} active={s.id === p.selectedPlaceId} onSelect={() => p.onSelectPlace(s.id)} />
-            {real && real.segments[i] && (
-              <p className="ml-5 border-l-2 border-dashed border-[var(--color-line)] py-1 pl-4 text-xs text-[var(--color-muted)]" data-testid={`segment-${i}`}>
-                {t("route.segment", { a: i + 1, b: i + 2 })} · <Distance meters={real.segments[i].distanceM} /> · <Duration seconds={real.segments[i].durationS} />
+            {segments && segments[i] && (
+              <p className="ml-6 flex items-center gap-1.5 border-l-2 border-[var(--color-accent)] py-1.5 pl-4 text-xs text-[var(--color-muted)]" data-testid={`segment-${i}`}>
+                <Footprints aria-hidden="true" className="size-3.5 text-[var(--color-accent)]" />
+                {t("route.segment", { a: i + 1, b: i + 2 })} · <Distance meters={segments[i].distanceM} /> · <Duration seconds={segments[i].durationS} />
               </p>
             )}
           </li>

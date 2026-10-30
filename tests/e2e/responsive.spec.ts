@@ -17,7 +17,7 @@ for (const vp of VIEWPORTS) {
     await page.goto("/");
     await expect(page.locator(".maplibregl-canvas")).toBeVisible();
     await expect(page.getByTestId("map-loading")).toHaveCount(0);
-    await expect(page.locator('[data-testid^="marker-"]')).toHaveCount(30);
+    await expect(page.locator('[data-testid="cluster"], [data-testid^="marker-"]').first()).toBeVisible();
     await page.waitForTimeout(2500); // 타일 로딩 대기(스크린샷용)
 
     // 가로 스크롤 없음
@@ -46,8 +46,9 @@ for (const vp of VIEWPORTS) {
     await page.screenshot({ path: `docs/screenshots/${vp.name}.png` });
 
     // 상세 열기 → 스크린샷
-    await page.getByTestId("marker-cafe-ivy").click();
-    await expect(page.getByTestId("place-detail-cafe-ivy")).toBeVisible();
+    if (vp.mobile && (await page.getByTestId("bottom-sheet").getAttribute("data-state")) === "collapsed") await page.getByTestId("list-toggle").click();
+    await page.getByTestId("place-list").locator('[data-testid^="place-item-"]').first().click();
+    await expect(page.locator('[data-testid^="place-detail-"]')).toBeVisible();
     await page.waitForTimeout(800);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     await page.screenshot({ path: `docs/screenshots/${vp.name}-detail.png` });

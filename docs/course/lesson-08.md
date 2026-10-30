@@ -14,6 +14,7 @@
 - 코드: `lib/routing/ors.ts`, `app/api/route/route.ts`, `components/routes/RouteExplorer.tsx`
 
 ## 강사 설명 핵심 개념
+0. **두 가지 방법**: ① **OSMnx(완성본 기본)** — OpenStreetMap 보행 네트워크를 내려받아 *배포 전에* 최단 경로를 계산해 `data/route-paths.json` 으로 저장. 키·요금 없음, 실행 중 외부 호출 없음. ② **OpenRouteService(선택)** — 실행 중 서버가 API 를 호출(차량 등 다른 이동수단).
 1. **직선 vs 경로**: 직선은 "대략 어디에서 어디로". 경로 API는 도로·보행로를 따른 거리·시간·형상을 계산한다.
 2. **왜 서버를 거치나**: 브라우저 코드는 누구나 볼 수 있다. 키를 넣으면 노출 → 서버 API Route(`/api/route`)가 키를 갖고 대신 호출. 환경변수 `ORS_API_KEY`(**NEXT_PUBLIC_ 금지**).
 3. **서버가 좌표를 직접 조회**: 클라이언트는 `routeId`·`mode` 만 보낸다(남용 방지).
@@ -21,8 +22,19 @@
 5. **정직한 실패**: 키 없음(503)·한도(429)·오류(502)·시간초과(504) → 가상의 시간을 보여 주지 않고 안내만 표시. 지도와 코스는 계속 동작.
 
 ## 단계별 실습
+**0. OSMnx 로 실제 도보 경로 만들기 (Python, 강사 시연 또는 선택 실습)**
+```bash
+python -m venv .venv
+.venv/Scripts/pip install -r scripts/data-pipeline/requirements.txt
+.venv/Scripts/python scripts/data-pipeline/build_routes.py   # → data/route-paths.json
+npm run validate:data                                        # 구간 수가 코스와 맞는지 검증
+```
+- 스크립트가 하는 일: 코스 범위의 보행 네트워크 다운로드(`ox.graph_from_bbox(network_type="walk")`) → 각 방문지를 가장 가까운 보행로 노드에 연결(`nearest_nodes`) → 구간마다 길이 기준 최단 경로(`networkx.shortest_path(weight="length")`) → 거리 합계와 4.5km/h 추정 시간 저장.
+- 공용 Overpass 서버가 혼잡하면 502 → 스크립트가 자동 재시도합니다.
+- 결과: 코스 화면에 "실제 도보 경로 · 도보 2.2km · 약 30분", 지도에 골목을 따라가는 실선, 방문지 사이 구간별 거리·시간.
+
 **A. 키 없이 (필수)**
-1. 코스를 선택한다 → "경로 API 키가 설정되지 않아 …" 안내가 보이고 이동시간 버튼은 없다. 점선(직선) 표시 유지.
+1. 코스를 선택한다 → `route-paths.json` 이 있으면 실제 도보 경로(실선)·거리·추정 시간, 없으면 "경로 API 키가 설정되지 않아 …" 안내와 점선(직선)이 보인다.
 
 **B. 키 사용 (선택·강사 시연)**
 1. 프로젝트 루트에 `.env.local` 생성(`.env.example` 복사) 후 `ORS_API_KEY=내키`. **채팅·화면 공유에 키가 보이지 않게 주의.**
@@ -64,6 +76,10 @@ app/api/route/route.ts 와 lib/routing/ors.ts 를 읽고 다음을 설명해 주
 
 ## 학습 정리
 직선 ≠ 경로. 키는 서버에. 실패해도 서비스는 계속. 한도·비용은 직접 확인.
+
+**Q0(보너스). OSMnx 방식의 소요 시간이 '추정치'인 이유는?**
+① 지도가 틀려서 ② 거리 ÷ 평균 보행 속도로 계산해 계단·신호·혼잡을 반영하지 않기 때문 ③ 인터넷이 느려서 ④ API 키가 없어서
+**정답: ②**
 
 ## 복습 퀴즈
 **Q1. API 키 환경변수 이름에 `NEXT_PUBLIC_` 을 붙이면?**

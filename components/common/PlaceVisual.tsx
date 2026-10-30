@@ -15,7 +15,7 @@ interface Props {
  */
 export function PlaceVisual({ place, category, alt, variant, noImageLabel }: Props) {
   const color = category?.color ?? "#566260";
-  const box = variant === "thumb" ? "size-20 shrink-0 rounded-xl" : "h-44 w-full rounded-[var(--radius-card)] sm:h-52";
+  const box = variant === "thumb" ? "size-[4.5rem] shrink-0 rounded-xl" : "h-48 w-full rounded-[var(--radius-card)] sm:h-56";
   if (place.imageUrl) {
     // 외부 이미지 도메인은 사전에 알 수 없으므로 일반 img 사용 (직접 촬영/허가된 이미지 권장)
     // eslint-disable-next-line @next/next/no-img-element

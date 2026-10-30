@@ -1,0 +1,3 @@
+# 컨테이너(Linux)에서 실행되는 스크립트는 항상 LF
+*.sh text eol=lf
+Dockerfile text eol=lf

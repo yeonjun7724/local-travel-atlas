@@ -11,3 +11,7 @@ playwright-report
 .vercel
 .next-ors
 public/maplibre
+.venv
+scripts/data-pipeline/cache
+__pycache__
+data/raw

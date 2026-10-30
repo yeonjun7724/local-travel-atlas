@@ -75,6 +75,25 @@ git push
 
 Vercel → Settings → Domains 에서 본인 도메인을 추가합니다. 도메인을 바꾸면 QR 을 새 주소로 다시 만드세요.
 
+## 7-1. Vercel 대신 Railway CLI 로 배포 (대안)
+
+완성본 데모는 Railway 에 올라가 있습니다: https://local-travel-atlas-production.up.railway.app
+
+```bash
+npm i -g @railway/cli
+railway login                                   # 브라우저 인증
+railway up -y --name local-travel-atlas --ci    # 프로젝트 생성 + 업로드 + 빌드(Railpack: npm install → npm run build → npm start)
+railway domain                                  # 공개 주소(*.up.railway.app) 발급
+railway variables --set ORS_API_KEY=...         # (선택) 이동시간 API — 채팅·문서에 키를 붙이지 마세요
+railway up --ci                                 # 코드·데이터를 고친 뒤 다시 배포
+```
+
+- 업로드 대상은 현재 폴더이며 `.gitignore` + `.railwayignore` 를 따릅니다(`.env.local`·`.venv` 제외). 커밋하지 않은 변경도 올라가므로 배포 전에 `npm run build` 로 확인하세요.
+- Node 버전은 `package.json` 의 `engines.node`(>=22.12)로 정해집니다.
+- Railway 는 **사용량 과금**(상시 실행 서버)이고 Vercel Hobby 는 무료입니다. 비용은 Railway 대시보드 → Usage 에서 확인하세요.
+- `@vercel/analytics` 는 Vercel 전용이므로 Railway 에서는 `NEXT_PUBLIC_ENABLE_ANALYTICS` 를 켜지 마세요.
+- GitHub 푸시 자동 배포: `railway service source connect --repo <owner>/<repo> --branch main`.
+
 ## 8. 자주 겪는 배포 오류
 
 | 증상 | 원인 | 해결 |

@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import QRCode from "qrcode";
 import { Check, Copy, Download, Share2, X } from "lucide-react";
 import { useI18n } from "@/components/common/I18nProvider";
 import { buildShareUrl, isLocalHost } from "@/lib/share";
 
 export type ShareScope = "map" | "route" | "place";
+
+const noopSubscribe = () => () => {};
 
 interface Props {
   open: boolean;
@@ -25,10 +27,12 @@ export function ShareDialog({ open, onClose, routeId, placeId, scope, onScope, b
   const [qr, setQr] = useState<string>("");
   const [copied, setCopied] = useState<"idle" | "ok" | "fail">("idle");
 
-  const baseUrl = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return process.env.NEXT_PUBLIC_SITE_URL || window.location.origin + window.location.pathname;
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 서버 렌더링에서는 주소를 알 수 없으므로 빈 값 → 브라우저에서만 실제 주소 (하이드레이션 불일치 방지)
+  const baseUrl = useSyncExternalStore(
+    noopSubscribe,
+    () => process.env.NEXT_PUBLIC_SITE_URL || window.location.origin + window.location.pathname,
+    () => "",
+  );
 
   const shareUrl = useMemo(() => {
     if (!baseUrl) return "";
