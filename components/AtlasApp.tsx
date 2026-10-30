@@ -18,15 +18,19 @@ import type { MapCommand } from "@/components/map/MapView";
 import { CategoryFilters } from "@/components/places/CategoryFilters";
 import { PlaceDetailPanel } from "@/components/places/PlaceDetailPanel";
 import { PlaceList } from "@/components/places/PlaceList";
+import { MyRoutePanel, type WalkState } from "@/components/routes/MyRoutePanel";
 import { RouteExplorer, type RouteLoadState } from "@/components/routes/RouteExplorer";
 import { filterPlaces, sortPlaces, subtypeCounts, type SortKey } from "@/lib/data/filter";
+import { fetchPlacesByIds, fetchSearchExtent, useRemoteView, type RemoteQuery } from "@/lib/data/remote-client";
 import { useFavorites } from "@/lib/favorites";
-import { bboxCenter, bboxChanged, haversineMeters, inBBox, type BBox, type LngLat } from "@/lib/geo";
+import { bboxCenter, bboxChanged, haversineMeters, inBBox, nearestNeighborOrder, type BBox, type LngLat } from "@/lib/geo";
 import { useIsDesktop } from "@/lib/hooks";
 import { localizePlace, localizeRoute } from "@/lib/i18n";
+import { MY_ROUTE_ID, MY_ROUTE_MAX, useMyRoute } from "@/lib/my-route";
+import type { WalkResult } from "@/lib/routing/osrm";
 import type { RouteResult, TransportMode } from "@/lib/routing/ors";
 import { buildShareUrl, parseShareParams } from "@/lib/share";
-import type { AtlasData } from "@/lib/validation/schemas";
+import type { AtlasData, Place } from "@/lib/validation/schemas";
 
 const MapView = dynamic(() => import("@/components/map/MapView"), {
   ssr: false,
@@ -67,11 +71,15 @@ function useOnline(): boolean {
   );
 }
 
-export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; routingEnabled: boolean }) {
+/** 전국 모드에서 '전체 보기' 버튼이 맞출 대한민국 범위 */
+const KOREA_BBOX: BBox = [125.9, 33.1, 129.6, 38.6];
+
+export default function AtlasApp({ data, routingEnabled, remote = false }: { data: AtlasData; routingEnabled: boolean; remote?: boolean }) {
   const { t, lang } = useI18n();
   const isDesktop = useIsDesktop();
   const online = useOnline();
   const { favorites, isFavorite, toggle: toggleFavorite } = useFavorites();
+  const myRoute = useMyRoute();
 
   const [tab, setTab] = useState<Tab>("places");
   const [category, setCategory] = useState<string | null>(null);
@@ -106,28 +114,89 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
   const [locating, setLocating] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [urlReady, setUrlReady] = useState(false);
+  const [viewZoom, setViewZoom] = useState(siteConfig.region.zoom);
+  /** 범위 맞춤 대상 — 동네 모드 null(장소 목록 기준), 전국 모드 false(이동 안 함) 또는 검색 결과 범위 */
+  const [fitTarget, setFitTarget] = useState<BBox | false | null>(remote ? false : null);
+  /** 브라우저가 지금까지 받은 장소(전국 모드는 서버에서 조금씩 받아 옵니다) */
+  const [fetched, setFetched] = useState<Map<string, Place>>(() => new Map());
+  const [walk, setWalk] = useState<{ key: string; state: WalkState }>({ key: "", state: { status: "idle" } });
   const requestRef = useRef(0);
   const mainRef = useRef<HTMLElement>(null);
 
   // ── 파생 데이터 ────────────────────────────────────────────────────────────
-  const areaBounds: BBox | null = customArea === undefined ? initialArea : customArea;
-  const placesById = useMemo(() => new Map(data.places.map((p) => [p.id, p])), [data.places]);
+  const isMyRoute = routeId === MY_ROUTE_ID;
+  const areaBounds: BBox | null = remote ? null : customArea === undefined ? initialArea : customArea;
+  const placesById = useMemo(() => {
+    const m = new Map(data.places.map((p) => [p.id, p]));
+    fetched.forEach((p, id) => m.set(id, p));
+    return m;
+  }, [data.places, fetched]);
+  const remember = useCallback((ps: Place[]) => {
+    setFetched((cur) => {
+      if (ps.every((p) => cur.has(p.id))) return cur;
+      const next = new Map(cur);
+      for (const p of ps) next.set(p.id, p);
+      return next;
+    });
+  }, []);
   const catById = useMemo(() => new Map(data.categories.map((c) => [c.id, c])), [data.categories]);
   const activeRoute = useMemo(() => data.routes.find((r) => r.routeId === routeId) ?? null, [data.routes, routeId]);
+  const myStopPlaces = useMemo(() => myRoute.stops.map((id) => placesById.get(id)).filter((p): p is Place => Boolean(p)), [myRoute.stops, placesById]);
   const routeStops = useMemo(
-    () => (activeRoute ? activeRoute.placeIds.map((id) => placesById.get(id)).filter((p): p is NonNullable<typeof p> => Boolean(p)) : null),
-    [activeRoute, placesById],
+    () =>
+      isMyRoute
+        ? myStopPlaces
+        : activeRoute
+          ? activeRoute.placeIds.map((id) => placesById.get(id)).filter((p): p is NonNullable<typeof p> => Boolean(p))
+          : null,
+    [isMyRoute, myStopPlaces, activeRoute, placesById],
   );
   const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
-  const filtered = useMemo(
-    () => filterPlaces(data.places, { category, query, subtype, favoriteIds: favOnly ? favoriteSet : null }),
-    [data.places, category, query, subtype, favOnly, favoriteSet],
+
+  // 전국 모드: 지도 화면 범위를 서버에 물어봅니다(찜 보기·추천 코스 보기 중에는 요청하지 않음)
+  const remoteQuery: RemoteQuery | null =
+    remote && viewBounds && !favOnly && (tab === "places" || isMyRoute)
+      ? { bbox: viewBounds, zoom: viewZoom, center: bboxCenter(viewBounds), category, subtype, q: query, limit: 100 }
+      : null;
+  // 받은 장소는 기억해 두어, 지도를 옮겨도 열어 둔 상세·내 코스가 유지되게 합니다
+  const remoteView = useRemoteView(remoteQuery, (v) => remember([...(v.points ?? []), ...v.list]));
+  const rv = remoteView.data;
+  // 찜·내 코스·공유 링크로 들어온 장소 중 아직 모르는 것은 id 로 받아 옵니다
+  const missingIds = useMemo(
+    () => (remote ? [...new Set([...myRoute.stops, ...(favOnly ? favorites : []), ...(selectedId ? [selectedId] : [])])].filter((id) => !placesById.has(id)) : []),
+    [remote, myRoute.stops, favOnly, favorites, selectedId, placesById],
   );
-  const subtypes = useMemo(() => (category ? subtypeCounts(data.places.filter((p) => p.category === category), 8) : []), [data.places, category]);
-  const mapPlaces = routeStops ?? (tab === "places" ? filtered : data.places);
-  // 선택은 지도에 실제로 그려지는 장소 안에서만 유효(코스 보기 중이면 그 코스의 방문지)
-  const effectiveSelectedId = selectedId && mapPlaces.some((p) => p.id === selectedId) ? selectedId : null;
+  useEffect(() => {
+    if (!missingIds.length) return;
+    let alive = true;
+    fetchPlacesByIds(missingIds.slice(0, 200)).then((ps) => alive && remember(ps));
+    return () => {
+      alive = false;
+    };
+  }, [missingIds, remember]);
+
+  const filtered = useMemo(() => {
+    if (!remote) return filterPlaces(data.places, { category, query, subtype, favoriteIds: favOnly ? favoriteSet : null });
+    if (favOnly) return filterPlaces(favorites.map((id) => placesById.get(id)).filter((p): p is Place => Boolean(p)), { category, query, subtype });
+    return rv?.points ?? [];
+  }, [remote, data.places, category, query, subtype, favOnly, favoriteSet, favorites, placesById, rv]);
+  const serverClusters = remote && !favOnly ? (rv?.clusters ?? null) : null;
+  const subtypes = useMemo(
+    () => (remote ? (rv?.subtypes ?? []) : category ? subtypeCounts(data.places.filter((p) => p.category === category), 8) : []),
+    [remote, rv, data.places, category],
+  );
+  const mapPlaces = routeStops && !isMyRoute ? routeStops : tab === "places" || isMyRoute ? filtered : data.places;
+  // 선택은 지도에 실제로 그려지는(또는 목록에 있는) 장소 안에서만 유효(추천 코스 보기 중이면 그 코스의 방문지)
+  const effectiveSelectedId =
+    selectedId && (routeStops && !isMyRoute ? routeStops.some((p) => p.id === selectedId) : remote || isMyRoute ? placesById.has(selectedId) : mapPlaces.some((p) => p.id === selectedId))
+      ? selectedId
+      : null;
   const selectedPlace = effectiveSelectedId ? (placesById.get(effectiveSelectedId) ?? null) : null;
+  // 지도에 넘길 장소: 선택한 장소가 화면 목록에 없으면(전국 모드 클러스터 상태 등) 덧붙여 항상 보이게
+  const mapPoints = useMemo(() => {
+    const base = tab === "places" || isMyRoute ? filtered : data.places;
+    return selectedPlace && !base.some((p) => p.id === selectedPlace.id) ? [...base, selectedPlace] : base;
+  }, [tab, isMyRoute, filtered, data.places, selectedPlace]);
 
   // 거리 기준점: 내 위치 → 목록 영역 중심 → 현재 지도 중심 → 설정의 기본 중심
   const origin: LngLat = useMemo(
@@ -146,23 +215,33 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
       const set = new Set(stackIds);
       return filtered.filter((p) => set.has(p.id));
     }
+    // 전국 모드: 서버가 화면 중심에서 가까운 순으로 보낸 목록
+    if (remote && !favOnly) return rv?.list ?? [];
     return areaBounds ? filtered.filter((p) => inBBox([p.longitude, p.latitude], areaBounds)) : filtered;
-  }, [filtered, areaBounds, stackIds]);
+  }, [filtered, areaBounds, stackIds, remote, favOnly, rv]);
   const listed = useMemo(() => sortPlaces(inArea, sortKey, origin, lang), [inArea, sortKey, origin, lang]);
+  /** 결과 개수: 전국 모드는 화면 안 전체 개수(목록은 그중 가까운 100곳) */
+  const resultTotal = remote && !favOnly && !stackIds ? (rv?.total ?? 0) : listed.length;
   const listKey = `${category}|${subtype}|${favOnly}|${query}|${sortKey}|${areaBounds?.join(",")}|${stackIds?.join(",")}`;
   const shownN = page.key === listKey ? page.n : PAGE_SIZE;
   const hasFilter = category !== null || subtype !== null || favOnly || query.trim() !== "";
   const showAreaButton =
+    !remote &&
     tab === "places" &&
     !routeId &&
     !stackIds &&
     viewBounds !== null &&
     bboxChanged(areaBounds ?? fittedView ?? viewBounds, viewBounds);
 
-  const bumpFit = useCallback(() => {
-    fitPendingRef.current = true; // 다음 지도 이동 완료 화면을 '맞춘 화면'으로 기록
-    setFitSeq((n) => n + 1);
-  }, []);
+  /** 지도 범위 맞춤. 전국 모드는 target(검색 결과 범위 등)이 없으면 화면을 그대로 둡니다. */
+  const bumpFit = useCallback(
+    (target?: BBox) => {
+      fitPendingRef.current = true; // 다음 지도 이동 완료 화면을 '맞춘 화면'으로 기록
+      setFitTarget(remote ? (target ?? false) : null);
+      setFitSeq((n) => n + 1);
+    },
+    [remote],
+  );
   const bumpFocus = useCallback(() => setFocusSeq((n) => n + 1), []);
   const showToast = useCallback((kind: ToastMessage["kind"], text: string) => setToast({ id: Date.now(), kind, text }), []);
   const dismissToast = useCallback(() => setToast(null), []);
@@ -189,9 +268,14 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
 
   // ── 공유 링크 복원 ─────────────────────────────────────────────────────────
   useEffect(() => {
-    const parsed = parseShareParams(window.location.search, new Set(data.places.map((p) => p.id)), new Set(data.routes.map((r) => r.routeId)));
+    const parsed = parseShareParams(window.location.search, remote ? null : new Set(data.places.map((p) => p.id)), new Set(data.routes.map((r) => r.routeId)));
     /* eslint-disable react-hooks/set-state-in-effect -- 브라우저 URL 은 마운트 후에만 읽을 수 있습니다 */
-    if (parsed.routeId) {
+    if (parsed.routeId === MY_ROUTE_ID && parsed.stops) {
+      // 공유받은 내 코스로 교체 (링크를 연 의도가 그 코스를 보는 것이므로 기존 내 코스를 덮어씀)
+      myRoute.replace(parsed.stops);
+      setTab("routes");
+      setRouteId(MY_ROUTE_ID);
+    } else if (parsed.routeId) {
       const r = data.routes.find((x) => x.routeId === parsed.routeId);
       setTab("routes");
       setRouteId(parsed.routeId);
@@ -203,13 +287,50 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     }
     setUrlReady(true);
     /* eslint-enable react-hooks/set-state-in-effect */
+    // 첫 진입 시 1회만 읽습니다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.places, data.routes]);
 
   useEffect(() => {
     if (!urlReady) return;
-    const u = new URL(buildShareUrl(window.location.href, { routeId: routeId ?? undefined, placeId: effectiveSelectedId ?? undefined }));
+    const u = new URL(
+      buildShareUrl(window.location.href, {
+        routeId: routeId ?? undefined,
+        placeId: effectiveSelectedId ?? undefined,
+        stops: isMyRoute ? myRoute.stops : undefined,
+      }),
+    );
     window.history.replaceState(null, "", u.pathname + u.search);
-  }, [urlReady, routeId, effectiveSelectedId]);
+  }, [urlReady, routeId, effectiveSelectedId, isMyRoute, myRoute.stops]);
+
+  // ── 내 코스: 방문지가 바뀌면 실제 도보 경로(OSRM)를 다시 계산 ─────────────────
+  const walkKey = isMyRoute && myRoute.stops.length > 1 ? myRoute.stops.join(",") : "";
+  useEffect(() => {
+    if (!walkKey) return;
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch("/api/walk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ placeIds: walkKey.split(",") }),
+          signal: ctrl.signal,
+        });
+        const body = await res.json().catch(() => null);
+        if (res.ok) return setWalk({ key: walkKey, state: { status: "ok", data: body as WalkResult } });
+        const code = res.status === 503 ? "not_configured" : res.status === 422 ? "no_route" : "failed";
+        setWalk({ key: walkKey, state: { status: "error", code } });
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") setWalk({ key: walkKey, state: { status: "error", code: "failed" } });
+      }
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [walkKey]);
+  const walkState: WalkState = walk.key === walkKey ? walk.state : walkKey ? { status: "loading" } : { status: "idle" };
+  const myWalk = walkState.status === "ok" ? walkState.data : null;
 
   useEffect(() => {
     if (effectiveSelectedId) document.getElementById("panel-content")?.scrollTo({ top: 0 });
@@ -261,8 +382,9 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     [],
   );
 
-  const onViewChange = useCallback((b: BBox) => {
+  const onViewChange = useCallback((b: BBox, z: number) => {
     setViewBounds(b);
+    setViewZoom(z);
     if (fitPendingRef.current) {
       fitPendingRef.current = false;
       setFittedView(b);
@@ -287,6 +409,25 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     if (r) setMode(r.transportMode);
     openSheetIfCollapsed();
     bumpFit();
+  };
+  const openMyRoute = () => {
+    setTab("routes");
+    setRouteId(MY_ROUTE_ID);
+    setSelectedId(null);
+    setStackIds(null);
+    setLoadState({ status: "idle" });
+    openSheetIfCollapsed();
+    if (myRoute.stops.length) bumpFit();
+  };
+  const toggleMyRoute = (id: string) => {
+    if (myRoute.has(id)) return myRoute.remove(id);
+    if (myRoute.stops.length >= MY_ROUTE_MAX) return showToast("error", t("my.full", { n: MY_ROUTE_MAX }));
+    myRoute.add(id);
+    showToast("success", t("my.added", { n: myRoute.stops.length + 1 }));
+  };
+  const optimizeMyRoute = () => {
+    const order = nearestNeighborOrder(myStopPlaces.map((p) => [p.longitude, p.latitude] as LngLat));
+    myRoute.replace(order.map((i) => myStopPlaces[i].id));
   };
   const backToRoutes = () => {
     setRouteId(null);
@@ -320,6 +461,24 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     setQuery(q);
     applyFilterChange();
   };
+  // 전국 모드 검색: 입력이 멈추면 전국에서 일치하는 장소의 범위로 지도를 옮깁니다(이후 목록은 화면 기준)
+  useEffect(() => {
+    const q = query.trim();
+    if (!remote || !q) return;
+    let alive = true;
+    const timer = window.setTimeout(async () => {
+      const r = await fetchSearchExtent(q, category, subtype);
+      if (!alive || !r) return;
+      if (r.total === 0) showToast("error", t("results.empty"));
+      else if (r.bbox) bumpFit(r.bbox);
+    }, 500);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+    // 검색어가 바뀔 때만 이동합니다(카테고리 변경으로 지도가 튀지 않도록).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remote, query]);
   const toggleFavOnly = () => {
     setFavOnly((v) => !v);
     applyFilterChange();
@@ -411,10 +570,14 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
   );
 
   const walkPath = routeId ? (data.routePaths?.routes[routeId] ?? null) : null;
-  const routeGeometry =
-    loadState.status === "ok" && loadState.data.mode === mode ? loadState.data.geometry : (walkPath?.geometry as LngLat[] | undefined) ?? null;
+  const routeGeometry = isMyRoute
+    ? (myWalk?.geometry ?? null)
+    : loadState.status === "ok" && loadState.data.mode === mode
+      ? loadState.data.geometry
+      : ((walkPath?.geometry as LngLat[] | undefined) ?? null);
+  const routeSegments = isMyRoute && myWalk ? myWalk.segments.map((s) => s.geometry) : null;
   const shareTitles = {
-    route: activeRoute ? localizeRoute(activeRoute, lang).title : undefined,
+    route: isMyRoute ? t("my.title") : activeRoute ? localizeRoute(activeRoute, lang).title : undefined,
     place: selectedPlace ? localizePlace(selectedPlace, lang).name : undefined,
   };
 
@@ -437,6 +600,8 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
         bumpFocus();
       }}
       onOpenRoute={selectRoute}
+      myRouteOrder={myRoute.stops.indexOf(selectedPlace.id) + 1}
+      onToggleMyRoute={() => toggleMyRoute(selectedPlace.id)}
     />
   );
 
@@ -501,7 +666,7 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
     <div className="space-y-3">
       <div className="flex items-end justify-between">
         <p role="status" aria-live="polite" data-testid="result-count" className="text-sm font-bold">
-          {t(stackIds ? "results.stack" : areaBounds ? "results.inArea" : "results.all", { n: listed.length })}
+          {remoteView.loading && !rv ? t("common.loading") : t(stackIds ? "results.stack" : remote && !favOnly ? "results.inView" : areaBounds ? "results.inArea" : "results.all", { n: remote ? resultTotal.toLocaleString() : resultTotal })}
         </p>
         <div className="flex items-center gap-2 text-xs text-[var(--color-muted)]">
           {sortKey === "distance" && <span>{t(userLocation ? "sort.fromMe" : "sort.fromCenter")}</span>}
@@ -540,14 +705,35 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
           )}
         </>
       )}
+      {remote && !favOnly && !stackIds && resultTotal > listed.length && (
+        <p className="text-xs text-[var(--color-muted)]" data-testid="list-nearest">
+          {t("results.nearest", { n: listed.length })} · {t("results.zoomHint")}
+        </p>
+      )}
       <p className="pt-2 text-[0.6875rem] leading-relaxed text-[var(--color-muted)]" data-testid="data-footer">
-        {t("data.footer")}
+        {t(remote ? "data.footerNationwide" : "data.footer")}
       </p>
     </div>
   );
 
-  const routesBrowse = (
+  const routesBrowse = isMyRoute ? (
+    <MyRoutePanel
+      stops={myStopPlaces}
+      categories={data.categories}
+      walk={walkState}
+      selectedId={effectiveSelectedId}
+      onSelectPlace={selectPlace}
+      onMove={myRoute.move}
+      onRemove={myRoute.remove}
+      onOptimize={optimizeMyRoute}
+      onClear={myRoute.clear}
+      onBack={backToRoutes}
+      onShare={() => openShare("route")}
+    />
+  ) : (
     <RouteExplorer
+      myRouteCount={myRoute.stops.length}
+      onOpenMyRoute={openMyRoute}
       routes={data.routes}
       themes={data.themes}
       categories={data.categories}
@@ -604,7 +790,7 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
         >
           <div className="shrink-0 px-4 pt-4">
             <div className="flex items-center justify-between gap-3">
-              <BrandMark />
+              <BrandMark nationwide={remote} />
               <LanguageSwitcher />
             </div>
             <TabNav tab={tab} onTab={changeTab} variant="underline" className="mt-3" />
@@ -640,10 +826,14 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
           )}
         >
           <MapView
-            places={tab === "places" ? filtered : data.places}
+            places={mapPoints}
             categories={data.categories}
             routeStops={routeStops}
             routeGeometry={routeGeometry}
+            routeSegments={routeSegments}
+            showPlacesWithRoute={isMyRoute}
+            serverClusters={tab === "places" || isMyRoute ? serverClusters : null}
+            fitTarget={fitTarget}
             selectedId={effectiveSelectedId}
             userLocation={userLocation}
             focusSeq={focusSeq}
@@ -651,8 +841,8 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
             command={command}
             bottomInsetRatio={isDesktop ? 0 : sheetInset / Math.max(mainHeight, 1)}
             styleUrl={siteConfig.map.styleUrl}
-            initialCenter={siteConfig.region.center}
-            initialZoom={siteConfig.region.zoom}
+            initialCenter={remote ? siteConfig.nationwide.center : siteConfig.region.center}
+            initialZoom={remote ? siteConfig.nationwide.zoom : siteConfig.region.zoom}
             labels={mapLabels}
             onSelectPlace={selectPlace}
             onViewChange={onViewChange}
@@ -678,7 +868,7 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 space-y-2 p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
             <div className="pointer-events-auto flex items-center gap-2 rounded-[var(--radius-card)] bg-[var(--color-surface)] px-3 py-2 shadow-[var(--shadow-float)]">
               <div className="min-w-0 flex-1">
-                <BrandMark />
+                <BrandMark nationwide={remote} />
               </div>
               <LanguageSwitcher />
               <button type="button" onClick={() => openShare()} data-testid="share-button" aria-label={t("header.share")} className="btn btn-accent !px-3">
@@ -691,7 +881,7 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
         )}
 
         <div className="absolute right-3 z-10 transition-[bottom] duration-200" style={{ bottom: isDesktop ? "2.5rem" : `calc(${sheetInset}px + 2.5rem)` }} data-testid="map-controls">
-          <MapControls locating={locating} onLocate={locate} onZoomIn={() => zoom("zoomIn")} onZoomOut={() => zoom("zoomOut")} onReset={bumpFit} />
+          <MapControls locating={locating} onLocate={locate} onZoomIn={() => zoom("zoomIn")} onZoomOut={() => zoom("zoomOut")} onReset={() => bumpFit(remote && !routeStops?.length ? KOREA_BBOX : undefined)} />
         </div>
 
         {!isDesktop && (
@@ -734,6 +924,7 @@ export default function AtlasApp({ data, routingEnabled }: { data: AtlasData; ro
         onScope={setShareScope}
         brand={siteConfig.brand.name}
         titles={shareTitles}
+        stops={isMyRoute ? myRoute.stops : undefined}
       />
     </div>
   );

@@ -94,6 +94,17 @@ railway up --ci                                 # 코드·데이터를 고친 �
 - `@vercel/analytics` 는 Vercel 전용이므로 Railway 에서는 `NEXT_PUBLIC_ENABLE_ANALYTICS` 를 켜지 마세요.
 - GitHub 푸시 자동 배포: `railway service source connect --repo <owner>/<repo> --branch main`.
 
+### 전국 모드 구성 (데모 프로젝트 기준 서비스 3개)
+
+| 서비스 | 만드는 법 | 연결 |
+|---|---|---|
+| `local-travel-atlas` (앱) | `railway up` | 변수 `DATABASE_URL=${{PostGIS.DATABASE_PRIVATE_URL}}`, `OSRM_URL=http://osrm.railway.internal:5000` |
+| `PostGIS` | `railway deploy -t postgis` | 데이터 적재는 로컬에서 `load_postgres.py` (외부 TCP 프록시 주소 `DATABASE_URL` 사용) |
+| `osrm` (도보 경로) | `railway add --service osrm` → `railway up services/osrm --path-as-root -s osrm` → 볼륨 `/data` | 첫 시작에 대한민국 OSM 전처리(약 10분), 이후 재시작은 즉시 |
+
+- 세 서비스 모두 사용량 과금입니다. OSRM 은 메모리를 가장 많이 씁니다(Railway 대시보드 → Metrics 확인).
+- 볼륨 추가 시 CLI 가 오류를 내면 서비스·환경 ID 를 직접 지정합니다: `railway volume -s <serviceId> -e production add -m /data`.
+
 ## 8. 자주 겪는 배포 오류
 
 | 증상 | 원인 | 해결 |

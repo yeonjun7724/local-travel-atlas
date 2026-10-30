@@ -4,6 +4,7 @@ import { Heart, MapPin } from "lucide-react";
 import { useI18n } from "@/components/common/I18nProvider";
 import { CategoryIcon } from "@/components/common/CategoryIcon";
 import { PlaceVisual } from "@/components/common/PlaceVisual";
+import { orderColor } from "@/lib/data/geojson";
 import { formatDistance } from "@/lib/geo";
 import { localizeLabel, localizePlace } from "@/lib/i18n";
 import type { Category, Place } from "@/lib/validation/schemas";
@@ -42,7 +43,12 @@ export function PlaceCard({ place, category, order, active, distanceM, favorite,
         <span className="relative shrink-0">
           <PlaceVisual place={place} category={category} alt={name} variant="thumb" noImageLabel={t("place.noImage")} />
           {order && (
-            <span aria-hidden="true" className="absolute -left-1.5 -top-1.5 grid size-7 place-items-center rounded-full border-2 border-white bg-[var(--color-primary)] text-sm font-bold text-white">
+            <span
+              aria-hidden="true"
+              className="absolute -left-1.5 -top-1.5 grid size-7 place-items-center rounded-full border-2 border-white text-sm font-bold text-white"
+              style={{ background: orderColor(order - 1) }}
+              data-testid="order-badge"
+            >
               {order}
             </span>
           )}

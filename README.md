@@ -21,6 +21,8 @@
 > | 코스 도보 경로 | OpenStreetMap 보행 네트워크 + **OSMnx** 최단경로 | ODbL 1.0 |
 >
 > 평점·가격·리뷰처럼 출처가 없는 정보는 만들지 않습니다. 사진이 없는 장소는 카테고리 플레이스홀더를 보여 줍니다. 상가 데이터는 등록 업종 기준이라 실제 영업 여부와 다를 수 있습니다.
+>
+> 🇰🇷 **전국 모드(완성본 확장)** — `DATABASE_URL` 을 설정하면 진흥공단 **전국 음식점·카페 약 84만 곳**을 PostGIS 에서 화면 범위만큼 읽어 보여 줍니다(§5-2). 데모: <https://local-travel-atlas-production.up.railway.app>. 강의(1~12차시)는 CSV 동네 모드 기준입니다.
 
 ## 1. 무엇을 할 수 있나요
 
@@ -31,7 +33,8 @@
 | 정렬·찜 | 가까운순(내 위치/지도 중심 기준 거리 표시)·이름순·분류순, ♥ 찜(이 브라우저에만 저장) |
 | 테마·세부 종류 필터·검색 | 맛집/카페/자연·산책/역사·문화/관광명소, 장소명·태그 검색, 결과 수·빈 결과 안내 |
 | 장소 상세 | 마커·목록 어디서 열어도 같은 상세 패널(모바일은 바텀시트): 설명, 주소, 영업정보, 태그, 포함된 코스, 출처·라이선스, 길찾기, 공유 |
-| 추천 코스 3종 | 번호 핀 + **OSMnx 로 계산한 실제 도보 경로**, 총·구간별 거리와 추정 시간(4.5km/h) |
+| 추천 코스 3종 | 번호 핀 + **OSMnx 로 계산한 실제 도보 경로**, 총·구간별 거리와 추정 시간(4.5km/h). 방문 순서마다 핀·구간 선 색이 달라 동선을 따라가기 쉬움 |
+| 내 코스 | 장소 상세의 **내 코스에 추가**로 원하는 곳을 골라 순서대로 연결 → 순서 바꾸기·빼기·가까운 순 정렬, OSRM 실제 도보 경로·구간 거리, 링크로 공유(`?route=my-route&stops=…`). 경로 엔진이 없으면 직선 연결 + 안내 |
 | 이동시간(선택) | OpenRouteService 키가 있으면 도보/차량 실제 경로·구간별 시간·거리 표시. 키가 없으면 제공하지 않으며 지어내지 않습니다 |
 | 내 위치 | 버튼을 눌렀을 때만 위치 권한 요청, 서버에 저장하지 않음 |
 | 한국어/영어 | 새로고침해도 유지, 영어 번역이 없으면 한국어로 대체 + 안내 |
@@ -79,6 +82,8 @@ npm run dev
 | `NEXT_PUBLIC_MAP_STYLE_URL` | 지도 스타일 변경 (기본 OpenFreeMap Liberty) |
 | `NEXT_PUBLIC_ENABLE_ANALYTICS` | `true` 면 Vercel Web Analytics 로드 |
 | `NEXT_PUBLIC_SITE_URL` | 공유·QR 기준 주소 고정(비우면 현재 주소) |
+| `DATABASE_URL` | 전국 모드 PostGIS 주소(§5-2). 비우면 CSV 동네 모드. **서버 전용** |
+| `OSRM_URL` | 내 코스 도보 경로 엔진(OSRM, `services/osrm`). 비우면 직선 연결. **서버 전용** |
 
 `.env.local` 은 Git에 올라가지 않습니다(`.gitignore`). 키를 코드·채팅·스크린샷에 노출하지 마세요.
 
@@ -136,6 +141,23 @@ npm run validate:data
 - 공용 Overpass 서버는 혼잡하면 502 를 반환합니다 → 스크립트가 자동으로 재시도합니다.
 - 코스(`data/routes.json`)를 바꾸면 `build_routes.py` 를 다시 실행해야 경로가 갱신됩니다(구간 수가 다르면 검증이 알려 줌).
 - 응답은 `scripts/data-pipeline/cache/` 에 저장되어 재실행 시 재사용됩니다(Git 제외).
+
+## 5-2. 전국 모드 (선택 · PostGIS + OSRM)
+
+CSV 에 담기 어려운 전국 데이터는 DB 에서 **지금 보이는 지도 범위만** 받아 옵니다. 줌이 낮으면 서버가 격자로 묶은 클러스터를, 화면 안이 1,500곳 이하면 개별 장소를 보냅니다. 목록은 화면 중심에서 가까운 100곳입니다.
+
+```bash
+.venv/Scripts/python scripts/data-pipeline/semas_nationwide.py   # 진흥공단 전국 '음식' 업소(약 84만) → data/raw/ (페이지 캐시로 이어받기)
+DATABASE_URL=postgresql://... .venv/Scripts/python scripts/data-pipeline/load_postgres.py   # PostGIS 적재(새 테이블 → 교체)
+```
+
+| 구성 | 위치 | 비고 |
+|---|---|---|
+| 장소 API | `app/api/places/route.ts`, `lib/server/places-db.ts` | `GET ?bbox&z&cx&cy[&cat&sub&q]` 클러스터·장소·목록, `?ids=` id 조회, `?extent=1&q=` 검색 범위 |
+| 도보 경로 API | `app/api/walk/route.ts`, `lib/routing/osrm.ts` | `POST {placeIds}` — 좌표는 서버가 조회, 구간별 형상 반환 |
+| 경로 엔진 | `services/osrm/` | 대한민국 OSM(Geofabrik) foot 프로필, 첫 시작 시 전처리 후 `/data` 볼륨에 보관 |
+
+Railway 에서는 앱 서비스 변수에 `DATABASE_URL=${{PostGIS.DATABASE_PRIVATE_URL}}`, `OSRM_URL=http://osrm.railway.internal:5000` 을 넣습니다(내부망, 외부 공개 없음).
 
 ## 6. Vercel 배포 (요약)
 

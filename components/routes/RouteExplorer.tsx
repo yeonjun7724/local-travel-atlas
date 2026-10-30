@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowLeft, Car, Clock, Footprints, Loader2, Route as RouteIcon, Share2 } from "lucide-react";
+import { ArrowLeft, Car, Clock, Footprints, Loader2, Plus, Route as RouteIcon, Share2 } from "lucide-react";
 import { useI18n } from "@/components/common/I18nProvider";
 import { PlaceCard } from "@/components/places/PlaceCard";
+import { orderColor } from "@/lib/data/geojson";
 import { formatDuration, type RouteResult, type TransportMode } from "@/lib/routing/ors";
 import { localizeLabel, localizeRoute } from "@/lib/i18n";
 import type { Category, Place, Route, RoutePath, Theme } from "@/lib/validation/schemas";
@@ -32,6 +33,9 @@ interface Props {
   onShare: () => void;
   onMode: (m: TransportMode) => void;
   onLoadTimes: () => void;
+  /** 내 코스(사용자가 고른 장소) 개수와 열기 */
+  myRouteCount: number;
+  onOpenMyRoute: () => void;
 }
 
 function Duration({ seconds }: { seconds: number }) {
@@ -80,7 +84,22 @@ export function RouteExplorer(p: Props) {
 
   if (!active) {
     return (
-      <section aria-label={t("route.list")}>
+      <section aria-label={t("route.list")} className="space-y-3">
+        <button
+          type="button"
+          onClick={p.onOpenMyRoute}
+          data-testid="my-route-card"
+          className="flex w-full items-center gap-3 rounded-[var(--radius-card)] border-2 border-dashed border-[var(--color-accent)] bg-[var(--color-accent-soft)] p-4 text-left transition-colors hover:bg-[var(--color-surface)]"
+        >
+          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[var(--color-accent)] text-white">
+            <Plus aria-hidden="true" className="size-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-base font-bold">{t("my.title")}</span>
+            <span className="block text-xs text-[var(--color-muted)]">{p.myRouteCount ? t("my.cardCount", { n: p.myRouteCount }) : t("my.cardEmpty")}</span>
+          </span>
+          <span className="text-sm font-semibold text-[var(--color-accent-strong)]">{t("route.open")}</span>
+        </button>
         <ul className="space-y-3" data-testid="route-list">
           {p.routes.map((r, i) => {
             const { title, description } = localizeRoute(r, lang);
@@ -260,8 +279,8 @@ export function RouteExplorer(p: Props) {
           <li key={s.id} className="space-y-1.5">
             <PlaceCard place={s} category={catById.get(s.category)} order={i + 1} active={s.id === p.selectedPlaceId} onSelect={() => p.onSelectPlace(s.id)} />
             {segments && segments[i] && (
-              <p className="ml-6 flex items-center gap-1.5 border-l-2 border-[var(--color-accent)] py-1.5 pl-4 text-xs text-[var(--color-muted)]" data-testid={`segment-${i}`}>
-                <Footprints aria-hidden="true" className="size-3.5 text-[var(--color-accent)]" />
+              <p className="ml-6 flex items-center gap-1.5 border-l-[3px] py-1.5 pl-4 text-xs text-[var(--color-muted)]" style={{ borderColor: orderColor(i) }} data-testid={`segment-${i}`}>
+                <Footprints aria-hidden="true" className="size-3.5" style={{ color: orderColor(i) }} />
                 {t("route.segment", { a: i + 1, b: i + 2 })} · <Distance meters={segments[i].distanceM} /> · <Duration seconds={segments[i].durationS} />
               </p>
             )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ArrowLeft, Clock, ExternalLink, Heart, MapPin, Navigation, Route as RouteIcon, Share2 } from "lucide-react";
+import { ArrowLeft, Check, Clock, ExternalLink, Heart, MapPin, Navigation, Plus, Route as RouteIcon, Share2 } from "lucide-react";
 import { useI18n } from "@/components/common/I18nProvider";
 import { CategoryIcon } from "@/components/common/CategoryIcon";
 import { PlaceVisual } from "@/components/common/PlaceVisual";
@@ -23,6 +23,9 @@ interface Props {
   onShare: () => void;
   onFocusMap: () => void;
   onOpenRoute: (routeId: string) => void;
+  /** 내 코스에 들어 있는지(순서 번호, 없으면 0)와 추가/빼기 */
+  myRouteOrder: number;
+  onToggleMyRoute: () => void;
 }
 
 function SourceLink({ href, children }: { href?: string; children: React.ReactNode }) {
@@ -126,6 +129,17 @@ export function PlaceDetailPanel(p: Props) {
           </li>
         )}
       </ul>
+
+      <button
+        type="button"
+        onClick={p.onToggleMyRoute}
+        aria-pressed={p.myRouteOrder > 0}
+        data-testid="detail-my-route"
+        className={`btn w-full border ${p.myRouteOrder ? "btn-outline" : "btn-accent"}`}
+      >
+        {p.myRouteOrder ? <Check aria-hidden="true" className="size-4" /> : <Plus aria-hidden="true" className="size-4" />}
+        {p.myRouteOrder ? `${t("my.inRoute")} · ${t("place.routeOrder", { n: p.myRouteOrder })}` : t("my.add")}
+      </button>
 
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={p.onFocusMap} className="btn btn-primary" data-testid="detail-focus">

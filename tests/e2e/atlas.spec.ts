@@ -258,6 +258,55 @@ test.describe("추천 코스 · OSMnx 실제 도보 경로", () => {
     await expect(page.getByTestId("route-title")).toHaveText(routes.find((x) => x.routeId === "history-tour")!.titleKo);
   });
 
+  test("내 코스: 상세에서 추가 → 순서 색 핀·구간 → 순서 바꾸기 → 공유 링크 복원", async ({ page, browser, baseURL }) => {
+    await openApp(page, `?place=${GYEONGGIJEON}`);
+    await page.getByTestId("detail-my-route").click();
+    await expect(page.getByTestId("detail-my-route")).toHaveAttribute("aria-pressed", "true");
+    await openApp(page, `?place=${PUNGNAMMUN}`);
+    await page.getByTestId("detail-my-route").click();
+    await page.getByTestId("detail-back").click();
+
+    await ensureListVisible(page);
+    await page.getByTestId("tab-routes").click();
+    await expect(page.getByTestId("my-route-card")).toContainText("2곳");
+    await page.getByTestId("my-route-card").click();
+    const stops = page.getByTestId("route-stops").locator('[data-testid^="my-stop-"]');
+    await expect(stops).toHaveCount(2);
+    await expect(stops.first()).toHaveAttribute("data-testid", `my-stop-${GYEONGGIJEON}`);
+    await expect(page.getByTestId("segment-0")).toBeVisible();
+    // 번호 핀은 방문 순서 색(1번 파랑, 2번 빨강)
+    const pins = page.locator(".atlas-pin--numbered");
+    await expect(pins).toHaveCount(2);
+    expect(await pins.nth(0).evaluate((el) => el.style.getPropertyValue("--marker-color"))).toBe("#1b64da");
+    expect(await pins.nth(1).evaluate((el) => el.style.getPropertyValue("--marker-color"))).toBe("#d93036");
+    // 경로 엔진(OSRM_URL)이 없는 테스트 서버 → 직선 연결 + 안내
+    await expect(page.getByTestId("straight-notice")).toBeVisible();
+    await expect(page.getByTestId("map-container")).toHaveAttribute("data-route-line", "straight");
+
+    // 순서 바꾸기 → 주소창에 순서가 반영
+    await page.getByRole("button", { name: /앞으로|earlier/ }).nth(1).click();
+    await expect(stops.first()).toHaveAttribute("data-testid", `my-stop-${PUNGNAMMUN}`);
+    await expect(page).toHaveURL(new RegExp(`stops=${PUNGNAMMUN}%2C${GYEONGGIJEON}`));
+
+    // 공유 링크를 새 브라우저에서 열면 같은 순서의 내 코스
+    const ctx = await browser.newContext({ baseURL });
+    const other = await ctx.newPage();
+    await openApp(other, `?route=my-route&stops=${PUNGNAMMUN},${GYEONGGIJEON}`);
+    await expect(other.getByTestId("my-route")).toBeVisible();
+    await expect(other.getByTestId("route-stops").locator('[data-testid^="my-stop-"]').first()).toHaveAttribute("data-testid", `my-stop-${PUNGNAMMUN}`);
+    await ctx.close();
+
+    // 빼기 → 1곳이면 안내 문구
+    await page.getByTestId(`my-remove-${PUNGNAMMUN}`).click();
+    await expect(page.getByTestId("my-route-hint")).toBeVisible();
+  });
+
+  test("동네 모드 서버 API: 경로 엔진·전국 DB 미설정 시 503", async ({ request }) => {
+    expect((await request.post("/api/walk", { data: { placeIds: [GYEONGGIJEON, PUNGNAMMUN] } })).status()).toBe(503);
+    expect((await request.get("/api/places?ids=" + GYEONGGIJEON)).status()).toBe(503); // 동네 모드에는 전국 API 없음
+    expect(await (await request.get("/api/walk")).json()).toEqual({ enabled: false });
+  });
+
   test("경로 API 미설정 시 서버가 503 not_configured", async ({ request }) => {
     const res = await request.post("/api/route", { data: { routeId: routes[0].routeId, mode: "walking" } });
     expect(res.status()).toBe(503);

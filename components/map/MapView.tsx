@@ -6,7 +6,7 @@ import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import Supercluster from "supercluster";
 import type { FeatureCollection } from "geojson";
-import { boundsOf, straightLine, type LngLat } from "@/lib/data/geojson";
+import { boundsOf, orderColor, segmentFeatures, splitByStops, straightLine, type LngLat } from "@/lib/data/geojson";
 import type { BBox } from "@/lib/geo";
 import type { Category, Place } from "@/lib/validation/schemas";
 import { PlaceMarkerContent } from "./PlaceMarker";
@@ -21,6 +21,14 @@ export interface MapViewProps {
   routeStops: Place[] | null;
   /** 코스 경로 형상(실제 도보 경로 등). 없으면 직선 연결선 */
   routeGeometry: LngLat[] | null;
+  /** 구간별 형상(있으면 그대로 사용, 없으면 routeGeometry 를 방문지 기준으로 나눔) — 구간마다 순서 색 */
+  routeSegments?: LngLat[][] | null;
+  /** true 면 코스 번호 핀과 함께 일반 장소도 표시(내 코스 편집 중: 지도에서 눌러 추가) */
+  showPlacesWithRoute?: boolean;
+  /** 전국 모드: 서버가 묶어 보낸 클러스터. 있으면 브라우저 클러스터링 대신 이것을 그립니다 */
+  serverClusters?: { key: string; lng: number; lat: number; count: number }[] | null;
+  /** 범위 맞춤 요청 시 이 범위로 이동(검색 결과 전체 범위 등). false 면 장소 목록으로 맞추지 않음 */
+  fitTarget?: BBox | false | null;
   selectedId: string | null;
   userLocation: { lng: number; lat: number } | null;
   focusSeq: number;
@@ -40,7 +48,7 @@ export interface MapViewProps {
   };
   onSelectPlace: (id: string) => void;
   /** 지도 이동이 끝날 때마다 현재 보이는 영역 [서,남,동,북] */
-  onViewChange?: (bbox: BBox) => void;
+  onViewChange?: (bbox: BBox, zoom: number) => void;
   /** 끝까지 확대해도 나뉘지 않는 클러스터(같은 건물·좌표의 여러 장소)를 눌렀을 때 그 장소 id 들 */
   onStackPick?: (ids: string[]) => void;
 }
@@ -70,7 +78,8 @@ interface MarkerEntry {
 
 export default function MapView(props: MapViewProps) {
   const {
-    places, categories, routeStops, routeGeometry, selectedId, userLocation, focusSeq, fitSeq, command,
+    places, categories, routeStops, routeGeometry, routeSegments, showPlacesWithRoute = false, serverClusters = null, fitTarget = null,
+    selectedId, userLocation, focusSeq, fitSeq, command,
     bottomInsetRatio, styleUrl, initialCenter, initialZoom, labels, onSelectPlace, onViewChange, onStackPick,
   } = props;
 
@@ -86,9 +95,9 @@ export default function MapView(props: MapViewProps) {
   const [slots, setSlots] = useState<Slot[]>([]);
 
   // 콜백·최신 값은 ref 로 들고 있어 지도 이벤트 핸들러가 항상 최신 상태를 봅니다.
-  const latest = useRef({ places, routeStops, selectedId, categories, labels, onSelectPlace, onViewChange, onStackPick });
+  const latest = useRef({ places, routeStops, selectedId, categories, labels, onSelectPlace, onViewChange, onStackPick, showPlacesWithRoute, serverClusters });
   useEffect(() => {
-    latest.current = { places, routeStops, selectedId, categories, labels, onSelectPlace, onViewChange, onStackPick };
+    latest.current = { places, routeStops, selectedId, categories, labels, onSelectPlace, onViewChange, onStackPick, showPlacesWithRoute, serverClusters };
   });
 
   const placesById = useMemo(() => new Map(places.map((p) => [p.id, p])), [places]);
@@ -113,24 +122,29 @@ export default function MapView(props: MapViewProps) {
   const renderMarkers = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    const { places: ps, routeStops: stops, selectedId: sel, categories: cats, labels: lb } = latest.current;
+    const { places: ps, routeStops: stops, selectedId: sel, categories: cats, labels: lb, showPlacesWithRoute: withPlaces, serverClusters: sClusters } = latest.current;
     const catById = new Map(cats.map((c) => [c.id, c]));
     const byId = new Map(ps.map((p) => [p.id, p]));
     const zoom = map.getZoom();
     if (wrapRef.current) wrapRef.current.dataset.labels = zoom >= LABEL_ZOOM ? "on" : "off";
 
-    type Want = { key: string; lngLat: LngLat; place?: Place; order?: number; clusterId?: number; count?: number };
+    type Want = { key: string; lngLat: LngLat; place?: Place; order?: number; clusterId?: number; serverZoom?: number; count?: number };
     const want: Want[] = [];
-    if (stops) {
-      stops.forEach((p, i) => want.push({ key: `r-${p.id}`, lngLat: [p.longitude, p.latitude], place: p, order: i + 1 }));
-    } else {
-      const b = map.getBounds();
-      const bbox: BBox = [b.getWest() - 0.002, b.getSouth() - 0.002, b.getEast() + 0.002, b.getNorth() + 0.002];
-      for (const f of indexRef.current.getClusters(bbox, Math.min(Math.floor(zoom), CLUSTER_MAX_ZOOM))) {
-        const [lng, lat] = f.geometry.coordinates as LngLat;
-        const prop = f.properties as { cluster?: boolean; cluster_id?: number; point_count?: number; id?: string };
-        if (prop.cluster) want.push({ key: `c-${prop.cluster_id}`, lngLat: [lng, lat], clusterId: prop.cluster_id, count: prop.point_count });
-        else if (prop.id && byId.has(prop.id)) want.push({ key: `p-${prop.id}`, lngLat: [lng, lat], place: byId.get(prop.id) });
+    const stopIds = new Set(stops?.map((p) => p.id));
+    stops?.forEach((p, i) => want.push({ key: `r-${p.id}`, lngLat: [p.longitude, p.latitude], place: p, order: i + 1 }));
+    if (!stops || withPlaces) {
+      if (sClusters) {
+        // 전국 모드: 서버가 격자로 묶은 클러스터 (누르면 2단계 확대)
+        for (const c of sClusters) want.push({ key: `s-${c.key}-${c.count}`, lngLat: [c.lng, c.lat], count: c.count, serverZoom: Math.min(Math.floor(zoom) + 2, CLUSTER_MAX_ZOOM) });
+      } else {
+        const b = map.getBounds();
+        const bbox: BBox = [b.getWest() - 0.002, b.getSouth() - 0.002, b.getEast() + 0.002, b.getNorth() + 0.002];
+        for (const f of indexRef.current.getClusters(bbox, Math.min(Math.floor(zoom), CLUSTER_MAX_ZOOM))) {
+          const [lng, lat] = f.geometry.coordinates as LngLat;
+          const prop = f.properties as { cluster?: boolean; cluster_id?: number; point_count?: number; id?: string };
+          if (prop.cluster) want.push({ key: `c-${prop.cluster_id}`, lngLat: [lng, lat], clusterId: prop.cluster_id, count: prop.point_count });
+          else if (prop.id && byId.has(prop.id) && !stopIds.has(prop.id)) want.push({ key: `p-${prop.id}`, lngLat: [lng, lat], place: byId.get(prop.id) });
+        }
       }
       // 선택한 장소가 클러스터에 묶여 있어도 항상 보이게 합니다.
       if (sel && byId.has(sel) && !want.some((w) => w.place?.id === sel)) {
@@ -171,9 +185,14 @@ export default function MapView(props: MapViewProps) {
           el.dataset.testid = "cluster";
           el.textContent = String(w.count);
           el.setAttribute("aria-label", lb.cluster(w.count ?? 0));
-          const cid = w.clusterId!;
+          const cid = w.clusterId;
+          const serverZoom = w.serverZoom;
           el.addEventListener("click", (e) => {
             e.stopPropagation();
+            if (cid === undefined) {
+              map.easeTo({ center: w.lngLat, zoom: serverZoom ?? map.getZoom() + 2, duration: motion(400) });
+              return;
+            }
             const expansion = indexRef.current.getClusterExpansionZoom(cid);
             if (expansion > CLUSTER_MAX_ZOOM) {
               // 확대해도 나뉘지 않음(같은 좌표) → 지도 대신 목록으로 보여 줍니다
@@ -192,6 +211,8 @@ export default function MapView(props: MapViewProps) {
         entry.marker.setLngLat(w.lngLat);
       }
       if (w.place) {
+        // 코스 번호 핀은 순서 색(구간 선과 같은 색), 일반 핀은 카테고리 색
+        entry.el.style.setProperty("--marker-color", w.order ? orderColor(w.order - 1) : (catById.get(w.place.category)?.color ?? "#444"));
         const on = w.place.id === sel;
         entry.el.classList.toggle("atlas-pin--selected", on);
         entry.el.setAttribute("aria-pressed", String(on));
@@ -231,9 +252,9 @@ export default function MapView(props: MapViewProps) {
       map.addSource("route-straight", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addSource("route-real", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({ id: "route-straight-casing", type: "line", source: "route-straight", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": 6.5, "line-opacity": 0.85 } });
-      map.addLayer({ id: "route-straight-line", type: "line", source: "route-straight", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ROUTE_COLOR, "line-width": 3.5, "line-dasharray": [2, 2] } });
+      map.addLayer({ id: "route-straight-line", type: "line", source: "route-straight", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["coalesce", ["get", "color"], ROUTE_COLOR], "line-width": 3.5, "line-dasharray": [2, 2] } });
       map.addLayer({ id: "route-real-casing", type: "line", source: "route-real", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.9 } });
-      map.addLayer({ id: "route-real-line", type: "line", source: "route-real", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ROUTE_COLOR, "line-width": 5 } });
+      map.addLayer({ id: "route-real-line", type: "line", source: "route-real", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["coalesce", ["get", "color"], ROUTE_COLOR], "line-width": 5 } });
       setReady(true);
     });
     map.on("error", (e) => {
@@ -243,7 +264,7 @@ export default function MapView(props: MapViewProps) {
     const onMoveEnd = () => {
       renderMarkers();
       const b = map.getBounds();
-      latest.current.onViewChange?.([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
+      latest.current.onViewChange?.([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], map.getZoom());
     };
     map.on("moveend", onMoveEnd);
     map.once("load", onMoveEnd);
@@ -269,7 +290,7 @@ export default function MapView(props: MapViewProps) {
   // 데이터·선택·언어가 바뀌면 마커를 다시 그립니다.
   useEffect(() => {
     renderMarkers();
-  }, [index, routeStops, selectedId, labels, categories, renderMarkers, attempt]);
+  }, [index, routeStops, selectedId, labels, categories, renderMarkers, attempt, serverClusters, showPlacesWithRoute]);
 
   // ── 코스 연결선 ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -281,9 +302,10 @@ export default function MapView(props: MapViewProps) {
     const empty: FeatureCollection = { type: "FeatureCollection", features: [] };
     const state = !routeStops || routeStops.length < 2 ? "none" : routeGeometry && routeGeometry.length > 1 ? "real" : "straight";
     if (containerRef.current) containerRef.current.dataset.routeLine = state; // 테스트·디버깅용 상태 표시
-    if (state === "real" && routeGeometry) {
+    if (state === "real" && routeGeometry && routeStops) {
       straight.setData(empty);
-      real.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: routeGeometry } });
+      const segs = routeSegments?.length ? routeSegments : splitByStops(routeGeometry, routeStops.map((p) => [p.longitude, p.latitude] as LngLat));
+      real.setData(segmentFeatures(segs.length ? segs : [routeGeometry]));
     } else if (state === "straight" && routeStops) {
       real.setData(empty);
       straight.setData(straightLine(routeStops));
@@ -291,7 +313,7 @@ export default function MapView(props: MapViewProps) {
       straight.setData(empty);
       real.setData(empty);
     }
-  }, [routeStops, routeGeometry, ready]);
+  }, [routeStops, routeGeometry, routeSegments, ready]);
 
   // ── 선택 장소로 이동 ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -318,6 +340,14 @@ export default function MapView(props: MapViewProps) {
         return;
       }
       if (!routeStops) return;
+    }
+    if (!routeStops?.length || showPlacesWithRoute) {
+      // 전국 모드: 검색 결과 범위로 맞추거나(fitTarget), 화면 안 장소로는 맞추지 않음(false)
+      if (fitTarget === false && !routeStops?.length) return;
+      if (fitTarget && !routeStops?.length) {
+        map.fitBounds([[fitTarget[0], fitTarget[1]], [fitTarget[2], fitTarget[3]]], { padding: padding(), maxZoom: 17, bearing: 0, pitch: 0, duration: motion(700) });
+        return;
+      }
     }
     const coords: LngLat[] =
       routeGeometry && routeGeometry.length > 1

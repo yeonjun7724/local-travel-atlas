@@ -32,6 +32,28 @@ export function bboxChanged(a: BBox, b: BBox, threshold = 0.2): boolean {
 }
 
 /** 1.2km / 350m 형태 */
+/**
+ * 가까운 순 방문 순서(첫 장소 고정, 매번 남은 장소 중 가장 가까운 곳으로) — 최적해는 아니지만 되돌아가는 동선을 크게 줄입니다.
+ * 반환: 원래 배열의 인덱스 순서
+ */
+export function nearestNeighborOrder(points: LngLat[]): number[] {
+  if (points.length < 3) return points.map((_, i) => i);
+  const left = new Set(points.map((_, i) => i).slice(1));
+  const order = [0];
+  while (left.size) {
+    const cur = points[order[order.length - 1]];
+    let best = -1;
+    let bestD = Infinity;
+    for (const i of left) {
+      const d = haversineMeters(cur, points[i]);
+      if (d < bestD) [best, bestD] = [i, d];
+    }
+    order.push(best);
+    left.delete(best);
+  }
+  return order;
+}
+
 export function formatDistance(m: number, units: { km: string; m: string }): string {
   if (m >= 1000) return `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)}${units.km}`;
   return `${Math.round(m / 10) * 10}${units.m}`;

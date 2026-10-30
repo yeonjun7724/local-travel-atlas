@@ -44,9 +44,9 @@ export function LogoMark({ className = "size-9" }: { className?: string }) {
 }
 
 /** 로고 + 서비스명 + 지역명 */
-export function BrandMark() {
+export function BrandMark({ nationwide = false }: { nationwide?: boolean }) {
   const { t, lang } = useI18n();
-  const regionName = lang === "en" ? siteConfig.region.nameEn : siteConfig.region.nameKo;
+  const regionName = nationwide ? t("app.nationwide") : lang === "en" ? siteConfig.region.nameEn : siteConfig.region.nameKo;
   return (
     <div className="flex min-w-0 items-center gap-2.5">
       <LogoMark />

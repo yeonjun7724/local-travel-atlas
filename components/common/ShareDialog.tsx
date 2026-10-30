@@ -19,9 +19,11 @@ interface Props {
   onScope: (s: ShareScope) => void;
   brand: string;
   titles: { route?: string; place?: string };
+  /** 내 코스 공유 시 방문지 id(순서대로) */
+  stops?: string[];
 }
 
-export function ShareDialog({ open, onClose, routeId, placeId, scope, onScope, brand, titles }: Props) {
+export function ShareDialog({ open, onClose, routeId, placeId, scope, onScope, brand, titles, stops }: Props) {
   const { t } = useI18n();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [qr, setQr] = useState<string>("");
@@ -37,13 +39,13 @@ export function ShareDialog({ open, onClose, routeId, placeId, scope, onScope, b
   const shareUrl = useMemo(() => {
     if (!baseUrl) return "";
     try {
-      if (scope === "place" && placeId) return buildShareUrl(baseUrl, { placeId, routeId: routeId ?? undefined });
-      if (scope === "route" && routeId) return buildShareUrl(baseUrl, { routeId });
+      if (scope === "place" && placeId) return buildShareUrl(baseUrl, { placeId, routeId: routeId ?? undefined, stops });
+      if (scope === "route" && routeId) return buildShareUrl(baseUrl, { routeId, stops });
       return buildShareUrl(baseUrl, {});
     } catch {
       return "";
     }
-  }, [baseUrl, scope, placeId, routeId]);
+  }, [baseUrl, scope, placeId, routeId, stops]);
 
   const isLocal = useMemo(() => {
     try {

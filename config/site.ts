@@ -15,6 +15,11 @@ export const siteConfig = {
     center: [127.1515, 35.8152] as [number, number],
     zoom: 15.6,
   },
+  /** 전국 모드(DATABASE_URL 설정 시)의 첫 화면 — 대한민국 전체 */
+  nationwide: {
+    center: [127.8, 36.3] as [number, number],
+    zoom: 6.4,
+  },
   map: {
     styleUrl:
       process.env.NEXT_PUBLIC_MAP_STYLE_URL || "https://tiles.openfreemap.org/styles/liberty",
