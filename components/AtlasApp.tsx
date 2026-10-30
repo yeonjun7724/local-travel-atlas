@@ -71,9 +71,6 @@ function useOnline(): boolean {
   );
 }
 
-/** 전국 모드에서 '전체 보기' 버튼이 맞출 대한민국 범위 */
-const KOREA_BBOX: BBox = [125.9, 33.1, 129.6, 38.6];
-
 export default function AtlasApp({ data, routingEnabled, remote = false }: { data: AtlasData; routingEnabled: boolean; remote?: boolean }) {
   const { t, lang } = useI18n();
   const isDesktop = useIsDesktop();
@@ -881,7 +878,7 @@ export default function AtlasApp({ data, routingEnabled, remote = false }: { dat
         )}
 
         <div className="absolute right-3 z-10 transition-[bottom] duration-200" style={{ bottom: isDesktop ? "2.5rem" : `calc(${sheetInset}px + 2.5rem)` }} data-testid="map-controls">
-          <MapControls locating={locating} onLocate={locate} onZoomIn={() => zoom("zoomIn")} onZoomOut={() => zoom("zoomOut")} onReset={() => bumpFit(remote && !routeStops?.length ? KOREA_BBOX : undefined)} />
+          <MapControls locating={locating} onLocate={locate} onZoomIn={() => zoom("zoomIn")} onZoomOut={() => zoom("zoomOut")} onReset={() => bumpFit(remote && !routeStops?.length ? siteConfig.nationwide.startBounds : undefined)} />
         </div>
 
         {!isDesktop && (

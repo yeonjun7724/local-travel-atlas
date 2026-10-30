@@ -38,10 +38,24 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = Path(__file__).resolve().parent / "cache"
 CACHE.mkdir(exist_ok=True)
-OUT = ROOT / "data" / "places.csv"
 
-# 전주 한옥마을 일대 (남, 서, 북, 동)
-BBOX = (35.8030, 127.1390, 35.8240, 127.1640)
+# 수집 지역. 사용법: fetch_places.py [jeonju|yangjae]  (기본 jeonju = 동네 모드 data/places.csv)
+# bbox = (남, 서, 북, 동). only = 수집할 카테고리(None 이면 전부) — 전국 모드 지역은 음식점·카페를 DB 의 진흥공단 데이터가 담당
+REGIONS = {
+    "jeonju": {
+        "bbox": (35.8030, 127.1390, 35.8240, 127.1640), "out": ROOT / "data" / "places.csv", "cache": "overpass.json",
+        "ko": "전주 한옥마을 일대", "en": "the Jeonju Hanok Village area", "addr_prefix": "전북특별자치도 전주시", "city": "전주시",
+        "semas": True, "only": None,
+    },
+    "yangjae": {
+        "bbox": (37.4720, 127.0230, 37.4930, 127.0480), "out": ROOT / "data" / "nationwide" / "yangjae-places.csv", "cache": "overpass-yangjae.json",
+        "ko": "서울 서초구 양재역 일대", "en": "the Yangjae area of Seocho, Seoul", "addr_prefix": "서울특별시", "city": "서울특별시",
+        "semas": False, "only": ("history", "landmark", "nature"),
+    },
+}
+REGION = REGIONS[sys.argv[1] if len(sys.argv) > 1 else "jeonju"]
+OUT = REGION["out"]
+BBOX = REGION["bbox"]
 UA = {"User-Agent": "LocalAtlas-education/1.0 (https://github.com/yeonjun7724/local-travel-atlas)"}
 TODAY = dt.date.today().isoformat()
 
@@ -235,7 +249,7 @@ def reverse_address(lat: float, lon: float) -> str:
         j = r.json() if r.status_code == 200 else {}
         p.write_text(json.dumps(j, ensure_ascii=False), encoding="utf-8")
     a = j.get("address", {})
-    city = a.get("city") or a.get("county") or "전주시"
+    city = a.get("city") or a.get("county") or REGION["city"]
     gu = a.get("borough") or a.get("city_district") or ""
     road = a.get("road", "")
     # 보행로·출구·자전거길 이름이 '도로'로 잡히는 경우가 있어, 도로명(…로/…길) 형태만 인정합니다.
@@ -253,13 +267,13 @@ def osm_address(t: dict) -> str | None:
     if t.get("addr:full"):
         return t["addr:full"]
     if t.get("addr:street") and re.search(r"[가-힣]", t["addr:street"]):
-        return " ".join(x for x in ["전북특별자치도 전주시", t.get("addr:district", ""), t["addr:street"], t.get("addr:housenumber", "")] if x)
+        return " ".join(x for x in [REGION["addr_prefix"], t.get("addr:district", ""), t["addr:street"], t.get("addr:housenumber", "")] if x)
     return None
 
 
 # ── 4. 조립 ───────────────────────────────────────────────────────────────
 def main():
-    els = cached("overpass.json", overpass)
+    els = cached(REGION["cache"], overpass)
     print(f"OSM 원본 {len(els)}건")
 
     rows: dict[str, dict] = {}
@@ -270,7 +284,7 @@ def main():
     for e in els:
         t = e["tags"]
         c = classify(t)
-        if not c:
+        if not c or (REGION["only"] and c[0] not in REGION["only"]):
             continue
         name = t["name"].strip()
         wd = t.get("wikidata")
@@ -329,10 +343,10 @@ def main():
         cu_ko = ", ".join(CUISINE_KO.get(x, x) for x in cuisines)
         cu_en = ", ".join(x.replace("_", " ") for x in cuisines)
         if not desc_ko:
-            desc_ko = f"전주 한옥마을 일대의 {SUBTYPE_KO.get(sub, sub)}입니다." + (f" 음식 종류: {cu_ko}." if cu_ko else "")
+            desc_ko = f"{REGION['ko']}의 {SUBTYPE_KO.get(sub, sub)}입니다." + (f" 음식 종류: {cu_ko}." if cu_ko else "")
             desc_src = desc_src or "OpenStreetMap 태그"
         if not desc_en and (name_en or desc_src.startswith("OpenStreetMap")):
-            desc_en = f"A {SUBTYPE_EN.get(sub, sub)} in the Jeonju Hanok Village area." + (f" Cuisine: {cu_en}." if cu_en else "")
+            desc_en = f"A {SUBTYPE_EN.get(sub, sub)} in {REGION['en']}." + (f" Cuisine: {cu_en}." if cu_en else "")
         if not desc_src_url:
             desc_src_url = f"https://www.openstreetmap.org/{r['el']['type']}/{r['el']['id']}"
 
@@ -388,7 +402,7 @@ def main():
         })
 
     # 음식점·카페: 진흥공단 데이터가 있으면 그것을 사용(상가 커버리지가 훨씬 넓음), 없으면 OSM 유지
-    sm = semas.load(BBOX)
+    sm = semas.load(BBOX) if REGION["semas"] else None
     if sm is not None:
         stores, src_label = sm
         out = [x for x in out if x["category"] not in ("food", "cafe")]
@@ -422,13 +436,14 @@ def main():
                 "imageCredit": "", "imageSourceUrl": "", "wikidata": "", "subtype": label,
             })
         print(f"진흥공단 음식점·카페 {sum(1 for x in out if x['id'].startswith('semas-'))}곳으로 대체 ({src_label})")
-    else:
+    elif REGION["semas"]:
         print("진흥공단 키/파일 없음 → 음식점·카페는 OpenStreetMap 데이터를 사용합니다")
 
     # 카테고리 → 이름 순으로 정렬 (사람이 CSV 를 읽기 쉽게)
     order = {"history": 0, "landmark": 1, "nature": 2, "cafe": 3, "food": 4}
     out.sort(key=lambda x: (order[x["category"]], x["nameKo"]))
     cols = list(out[0].keys())
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     with OUT.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols)
         w.writeheader()

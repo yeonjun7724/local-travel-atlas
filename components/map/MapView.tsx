@@ -7,6 +7,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import Supercluster from "supercluster";
 import type { FeatureCollection } from "geojson";
 import { boundsOf, orderColor, segmentFeatures, splitByStops, straightLine, type LngLat } from "@/lib/data/geojson";
+import { poiStyle } from "@/lib/data/poi-style";
 import type { BBox } from "@/lib/geo";
 import type { Category, Place } from "@/lib/validation/schemas";
 import { PlaceMarkerContent } from "./PlaceMarker";
@@ -62,6 +63,19 @@ const CLUSTER_MAX_ZOOM = 18;
 // 워커는 public/maplibre/ 에서 직접 제공합니다 (scripts/copy-maplibre-worker.mjs 가 복사)
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
+/** 클러스터 테두리 링: 묶인 장소의 핀 색 비율대로 칠한 conic-gradient (많은 색부터) */
+function mixRing(mix: Record<string, number>): string {
+  const entries = Object.entries(mix).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, [, n]) => s + n, 0) || 1;
+  let acc = 0;
+  const stops = entries.map(([c, n]) => {
+    const from = (acc / total) * 360;
+    acc += n;
+    return `${c} ${from.toFixed(1)}deg ${((acc / total) * 360).toFixed(1)}deg`;
+  });
+  return `conic-gradient(${stops.join(", ")})`;
+}
+
 function motion(ms: number): number {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : ms;
 }
@@ -103,11 +117,26 @@ export default function MapView(props: MapViewProps) {
   const placesById = useMemo(() => new Map(places.map((p) => [p.id, p])), [places]);
 
   // 클러스터 인덱스: 장소 목록이 바뀔 때만 다시 만듭니다.
+  // 각 클러스터는 묶인 장소의 핀 색별 개수(mix)를 함께 모아, 테두리 링을 업종 비율대로 칠합니다.
   const index = useMemo(() => {
-    const sc = new Supercluster<{ id: string }>({ radius: 72, maxZoom: CLUSTER_MAX_ZOOM });
-    sc.load(places.map((p) => ({ type: "Feature", properties: { id: p.id }, geometry: { type: "Point", coordinates: [p.longitude, p.latitude] } })));
+    const catById = new Map(categories.map((c) => [c.id, c]));
+    const sc = new Supercluster<{ id: string; c: string }, { mix: Record<string, number> }>({
+      radius: 72,
+      maxZoom: CLUSTER_MAX_ZOOM,
+      map: (p) => ({ mix: { [p.c]: 1 } }),
+      reduce: (acc, p) => {
+        for (const [k, n] of Object.entries(p.mix)) acc.mix[k] = (acc.mix[k] ?? 0) + n;
+      },
+    });
+    sc.load(
+      places.map((p) => ({
+        type: "Feature",
+        properties: { id: p.id, c: poiStyle(p, catById.get(p.category)).color },
+        geometry: { type: "Point", coordinates: [p.longitude, p.latitude] },
+      })),
+    );
     return sc;
-  }, [places]);
+  }, [places, categories]);
   const indexRef = useRef(index);
   useEffect(() => {
     indexRef.current = index;
@@ -128,7 +157,7 @@ export default function MapView(props: MapViewProps) {
     const zoom = map.getZoom();
     if (wrapRef.current) wrapRef.current.dataset.labels = zoom >= LABEL_ZOOM ? "on" : "off";
 
-    type Want = { key: string; lngLat: LngLat; place?: Place; order?: number; clusterId?: number; serverZoom?: number; count?: number };
+    type Want = { key: string; lngLat: LngLat; place?: Place; order?: number; clusterId?: number; serverZoom?: number; count?: number; mix?: Record<string, number> };
     const want: Want[] = [];
     const stopIds = new Set(stops?.map((p) => p.id));
     stops?.forEach((p, i) => want.push({ key: `r-${p.id}`, lngLat: [p.longitude, p.latitude], place: p, order: i + 1 }));
@@ -141,8 +170,9 @@ export default function MapView(props: MapViewProps) {
         const bbox: BBox = [b.getWest() - 0.002, b.getSouth() - 0.002, b.getEast() + 0.002, b.getNorth() + 0.002];
         for (const f of indexRef.current.getClusters(bbox, Math.min(Math.floor(zoom), CLUSTER_MAX_ZOOM))) {
           const [lng, lat] = f.geometry.coordinates as LngLat;
-          const prop = f.properties as { cluster?: boolean; cluster_id?: number; point_count?: number; id?: string };
-          if (prop.cluster) want.push({ key: `c-${prop.cluster_id}`, lngLat: [lng, lat], clusterId: prop.cluster_id, count: prop.point_count });
+          const prop = f.properties as { cluster?: boolean; cluster_id?: number; point_count?: number; id?: string; mix?: Record<string, number> };
+          // 키에 개수를 넣어, 장소 목록이 바뀌어 같은 id 가 다른 묶음이 되면 새로 그립니다
+          if (prop.cluster) want.push({ key: `c-${prop.cluster_id}-${prop.point_count}`, lngLat: [lng, lat], clusterId: prop.cluster_id, count: prop.point_count, mix: prop.mix });
           else if (prop.id && byId.has(prop.id) && !stopIds.has(prop.id)) want.push({ key: `p-${prop.id}`, lngLat: [lng, lat], place: byId.get(prop.id) });
         }
       }
@@ -170,10 +200,8 @@ export default function MapView(props: MapViewProps) {
         el.type = "button";
         if (w.place) {
           const p = w.place;
-          const cat = catById.get(p.category);
           el.className = `atlas-pin${w.order ? " atlas-pin--numbered" : ""}`;
           el.dataset.testid = `marker-${p.id}`;
-          el.style.setProperty("--marker-color", cat?.color ?? "#444");
           el.setAttribute("aria-label", lb.nameOf(p));
           el.addEventListener("click", (e) => {
             e.stopPropagation();
@@ -181,7 +209,8 @@ export default function MapView(props: MapViewProps) {
           });
         } else {
           const n = w.count ?? 0;
-          el.className = `atlas-cluster${n >= 50 ? " atlas-cluster--lg" : n < 10 ? " atlas-cluster--sm" : ""}`;
+          el.className = `atlas-cluster${n >= 50 ? " atlas-cluster--lg" : n < 10 ? " atlas-cluster--sm" : ""}${w.mix ? " atlas-cluster--mix" : ""}`;
+          if (w.mix) el.style.setProperty("--ring", mixRing(w.mix));
           el.dataset.testid = "cluster";
           el.textContent = String(w.count);
           el.setAttribute("aria-label", lb.cluster(w.count ?? 0));
@@ -212,11 +241,13 @@ export default function MapView(props: MapViewProps) {
       }
       if (w.place) {
         // 코스 번호 핀은 순서 색(구간 선과 같은 색), 일반 핀은 카테고리 색
-        entry.el.style.setProperty("--marker-color", w.order ? orderColor(w.order - 1) : (catById.get(w.place.category)?.color ?? "#444"));
+        // 세부 업종 그룹별 색·아이콘(음식점·카페), 그 외는 카테고리 색 — 코스 번호 핀은 순서 색
+        const style = poiStyle(w.place, catById.get(w.place.category));
+        entry.el.style.setProperty("--marker-color", w.order ? orderColor(w.order - 1) : style.color);
         const on = w.place.id === sel;
         entry.el.classList.toggle("atlas-pin--selected", on);
         entry.el.setAttribute("aria-pressed", String(on));
-        nextSlots.push({ key: w.key, kind: "pin", el: entry.el, icon: catById.get(w.place.category)?.icon, label: lb.nameOf(w.place), order: w.order });
+        nextSlots.push({ key: w.key, kind: "pin", el: entry.el, icon: style.icon, label: lb.nameOf(w.place), order: w.order });
       } else {
         nextSlots.push({ key: w.key, kind: "cluster", el: entry.el });
       }

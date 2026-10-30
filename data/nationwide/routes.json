@@ -1,0 +1,32 @@
+[
+  {
+    "routeId": "yangjae-stream-walk",
+    "titleKo": "양재천 물길 산책",
+    "titleEn": "Yangjaecheon Stream Walk",
+    "descriptionKo": "양재역 남쪽 말죽거리공원에서 내려와 양재천을 따라 카페거리를 지나고, 양재근린공원을 거쳐 양재시민의숲까지 걷는 물길·숲 코스입니다.",
+    "descriptionEn": "Head south from Maljukgeori Park near Yangjae Station, follow the Yangjaecheon stream past its café street, and finish at Yangjae Citizens' Forest.",
+    "theme": "nature-rest",
+    "placeIds": ["osm-r5490125", "osm-r20810294", "osm-w679620518", "osm-n8327363516", "osm-w647168398", "osm-w371210506", "osm-w261996465"],
+    "transportMode": "walking"
+  },
+  {
+    "routeId": "yangjae-museum-walk",
+    "titleKo": "양재역 서쪽 전시관 산책",
+    "titleEn": "Museums West of Yangjae Station",
+    "descriptionKo": "서이동산에서 출발해 동네 공원을 지나 전기박물관(한전갤러리가 같은 건물)과 외교사료관을 둘러보고 종여울산에서 마무리하는 짧은 문화 산책입니다.",
+    "descriptionEn": "A short culture walk from Seoi Hill through neighborhood parks to the Electricity Museum (with the KEPCO Gallery in the same building) and the Diplomatic Archives, ending at Jongyeoulsan.",
+    "theme": "history",
+    "placeIds": ["osm-w1105092493", "osm-w1044094490", "osm-n368734562", "osm-w677583498", "osm-w1210472530", "osm-n10252984935"],
+    "transportMode": "walking"
+  },
+  {
+    "routeId": "dogok-park-hop",
+    "titleKo": "도곡동 동네 공원 잇기",
+    "titleEn": "Dogok Neighborhood Park Hop",
+    "descriptionKo": "양재역 동쪽 싸리고개공원에서 양재공원을 지나 도곡까치공원·목련공원·독골공원·도곡근린공원으로 이어지는 골목 공원 코스입니다.",
+    "descriptionEn": "From Ssarigogae Park east of Yangjae Station, through Yangjae Park to the small parks of Dogok-dong: Kkachi, Mongnyeon, Dokgol and Dogok Neighborhood Park.",
+    "theme": "nature-rest",
+    "placeIds": ["osm-w628231871", "osm-w417974589", "osm-w468971649", "osm-w417970393", "osm-w370389785", "osm-w369972508"],
+    "transportMode": "walking"
+  }
+]

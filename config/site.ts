@@ -15,10 +15,12 @@ export const siteConfig = {
     center: [127.1515, 35.8152] as [number, number],
     zoom: 15.6,
   },
-  /** 전국 모드(DATABASE_URL 설정 시)의 첫 화면 — 대한민국 전체 */
+  /** 전국 모드(DATABASE_URL 설정 시)의 첫 화면 — 서울 서초구 양재역 일대 ('처음 위치' 버튼도 여기로) */
   nationwide: {
-    center: [127.8, 36.3] as [number, number],
-    zoom: 6.4,
+    center: [127.0344, 37.4846] as [number, number],
+    zoom: 16,
+    /** '처음 위치' 버튼이 맞출 범위 [서, 남, 동, 북] */
+    startBounds: [127.0289, 37.4818, 127.0399, 37.4874] as [number, number, number, number],
   },
   map: {
     styleUrl:

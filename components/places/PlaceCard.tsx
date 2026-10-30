@@ -5,6 +5,7 @@ import { useI18n } from "@/components/common/I18nProvider";
 import { CategoryIcon } from "@/components/common/CategoryIcon";
 import { PlaceVisual } from "@/components/common/PlaceVisual";
 import { orderColor } from "@/lib/data/geojson";
+import { poiStyle } from "@/lib/data/poi-style";
 import { formatDistance } from "@/lib/geo";
 import { localizeLabel, localizePlace } from "@/lib/i18n";
 import type { Category, Place } from "@/lib/validation/schemas";
@@ -26,7 +27,8 @@ interface Props {
 export function PlaceCard({ place, category, order, active, distanceM, favorite, onToggleFavorite, onSelect }: Props) {
   const { t, lang } = useI18n();
   const { name } = localizePlace(place, lang);
-  const color = category?.color ?? "#4e5968";
+  const style = poiStyle(place, category); // 지도 핀과 같은 세부 업종 색·아이콘
+  const color = style.color;
   const kind = place.subtype && place.subtype !== (category ? localizeLabel(category, "ko") : "") ? place.subtype : null;
   return (
     <div className="relative">
@@ -55,7 +57,7 @@ export function PlaceCard({ place, category, order, active, distanceM, favorite,
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1 text-xs font-semibold" style={{ color }}>
-            <CategoryIcon name={category?.icon} className="size-3.5 shrink-0" />
+            <CategoryIcon name={style.icon} className="size-3.5 shrink-0" />
             <span className="truncate">
               {category ? localizeLabel(category, lang) : place.category}
               {kind && lang === "ko" ? ` · ${kind}` : ""}

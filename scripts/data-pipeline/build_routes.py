@@ -53,9 +53,17 @@ def edge_coords(G, u, v) -> list[tuple[float, float]]:
     return [(G.nodes[u]["x"], G.nodes[u]["y"]), (G.nodes[v]["x"], G.nodes[v]["y"])]
 
 
+# 사용법: build_routes.py [jeonju|yangjae]  — jeonju = 동네 모드(data/), yangjae = 전국 모드 추천 코스(data/nationwide/)
+FILES = {
+    "jeonju": (ROOT / "data" / "places.csv", ROOT / "data" / "routes.json", ROOT / "data" / "route-paths.json"),
+    "yangjae": (ROOT / "data" / "nationwide" / "yangjae-places.csv", ROOT / "data" / "nationwide" / "routes.json", ROOT / "data" / "nationwide" / "route-paths.json"),
+}
+
+
 def main():
-    places = {r["id"]: r for r in csv.DictReader((ROOT / "data" / "places.csv").open(encoding="utf-8"))}
-    routes = json.loads((ROOT / "data" / "routes.json").read_text(encoding="utf-8"))
+    places_csv, routes_json, dest = FILES[sys.argv[1] if len(sys.argv) > 1 else "jeonju"]
+    places = {r["id"]: r for r in csv.DictReader(places_csv.open(encoding="utf-8"))}
+    routes = json.loads(routes_json.read_text(encoding="utf-8"))
     pts = [(float(places[i]["longitude"]), float(places[i]["latitude"])) for r in routes for i in r["placeIds"]]
     west, east = min(p[0] for p in pts) - PAD, max(p[0] for p in pts) + PAD
     south, north = min(p[1] for p in pts) - PAD, max(p[1] for p in pts) + PAD
@@ -108,7 +116,6 @@ def main():
         "walkingSpeedKmh": WALK_KMH,
         "routes": out,
     }
-    dest = ROOT / "data" / "route-paths.json"
     dest.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
     print("저장:", dest)
 

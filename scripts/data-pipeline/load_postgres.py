@@ -3,12 +3,13 @@
 
 입력
   1) data/raw/semas-food-nationwide.jsonl.gz  ← semas_nationwide.py 결과 (전국 음식점·카페)
-  2) data/places.csv 의 OpenStreetMap 장소(osm-*) ← 관광·역사·자연 + 추천 코스 방문지 (전체 문서를 doc 열에 저장)
+  2) data/places.csv · data/nationwide/*-places.csv 의 OpenStreetMap 장소(osm-*) ← 관광·역사·자연 + 추천 코스 방문지 (전체 문서를 doc 열에 저장)
 
 방식: places_new 테이블에 COPY → 인덱스 생성 → 한 트랜잭션에서 places 와 교체 (갱신 중에도 서비스 유지)
 
 사용법:
   DATABASE_URL=postgresql://... .venv/Scripts/python scripts/data-pipeline/load_postgres.py
+  (코스 방문지 CSV 만 바꿨다면 뒤에 --curated-only → 큐레이션 장소만 추가·갱신)
   (Railway: `railway variables -s PostGIS` 의 DATABASE_URL — 외부 TCP 프록시 주소. 값을 문서·채팅에 붙이지 마세요)
 """
 from __future__ import annotations
@@ -68,8 +69,9 @@ DROP TABLE IF EXISTS places_old;
 
 
 def curated_rows():
-    """places.csv 의 OSM 장소 → Place 문서(앱의 Zod 변환 결과와 같은 모양)"""
-    for r in csv.DictReader(CSV.open(encoding="utf-8-sig")):
+    """places.csv + data/nationwide/*-places.csv 의 OSM 장소 → Place 문서(앱의 Zod 변환 결과와 같은 모양)"""
+    files = [CSV, *sorted((ROOT / "data" / "nationwide").glob("*-places.csv"))]
+    for r in (row for f in files for row in csv.DictReader(f.open(encoding="utf-8-sig"))):
         if not r["id"].startswith("osm-"):
             continue
         doc = {k: v for k, v in r.items() if v not in ("", None)}
@@ -100,10 +102,27 @@ def semas_rows(seen: set[str]):
             yield (pid, name, x["category"], x["subtype"] or None, addr, round(x["lon"], 6), round(x["lat"], 6), None, None)
 
 
+def upsert_curated(url: str):
+    """--curated-only: 진흥공단 데이터는 그대로 두고 OSM 큐레이션 장소(코스 방문지)만 추가·갱신합니다(수 초)."""
+    with psycopg.connect(url) as conn, conn.cursor() as cur:
+        rows = list(curated_rows())
+        cur.executemany(
+            """INSERT INTO places (id, name, category, subtype, address, lon, lat, updated_at, doc)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, subtype = EXCLUDED.subtype,
+                 address = EXCLUDED.address, lon = EXCLUDED.lon, lat = EXCLUDED.lat, updated_at = EXCLUDED.updated_at, doc = EXCLUDED.doc""",
+            rows,
+        )
+        conn.commit()
+        print(f"큐레이션 장소 {len(rows)}곳 추가·갱신")
+
+
 def main():
     url = os.environ.get("DATABASE_URL")
     if not url:
         raise SystemExit("DATABASE_URL 환경변수가 필요합니다.")
+    if "--curated-only" in sys.argv:
+        return upsert_curated(url)
     if not SEMAS.exists():
         raise SystemExit(f"{SEMAS} 가 없습니다 → 먼저 semas_nationwide.py 를 실행하세요.")
     stdr = ""

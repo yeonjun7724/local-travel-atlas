@@ -28,7 +28,7 @@
 
 | 기능 | 설명 |
 |---|---|
-| 인터랙티브 지도 | 1,200여 곳을 클러스터(숫자)로 묶어 표시 → 누르면 확대, 카테고리 아이콘 핀(확대 시 이름), 확대/축소·내 위치·처음 위치 |
+| 인터랙티브 지도 | 클러스터(숫자)로 묶어 표시 → 누르면 확대. 핀은 **세부 업종 그룹별 색·아이콘**(한식·고기·분식·치킨·양식·중식·일식·해산물·아시안·주점·카페·빵·디저트, `lib/data/poi-style.ts`), 클러스터 테두리는 묶인 업종 비율 링. 확대/축소·내 위치·처음 위치 |
 | 지도 영역 탐색 | "현재 지도 영역"의 장소만 목록에 표시, 지도를 옮기면 **이 지역에서 다시 찾기** |
 | 정렬·찜 | 가까운순(내 위치/지도 중심 기준 거리 표시)·이름순·분류순, ♥ 찜(이 브라우저에만 저장) |
 | 테마·세부 종류 필터·검색 | 맛집/카페/자연·산책/역사·문화/관광명소, 장소명·태그 검색, 결과 수·빈 결과 안내 |
@@ -143,6 +143,14 @@ npm run validate:data
 - 응답은 `scripts/data-pipeline/cache/` 에 저장되어 재실행 시 재사용됩니다(Git 제외).
 
 ## 5-2. 전국 모드 (선택 · PostGIS + OSRM)
+
+첫 화면은 **서울 서초구 양재역 일대**(`config/site.ts` 의 `nationwide`)이고, 추천 코스는 양재역 일대 3종(`data/nationwide/` — OSM 명소 30곳 + OSMnx 도보 경로: 양재천 물길 산책 4.5km, 양재역 서쪽 전시관 산책 3.0km, 도곡동 동네 공원 잇기 3.3km)과 전주 3종입니다.
+
+```bash
+.venv/Scripts/python scripts/data-pipeline/fetch_places.py yangjae   # → data/nationwide/yangjae-places.csv (명소·역사·자연만)
+.venv/Scripts/python scripts/data-pipeline/build_routes.py yangjae   # → data/nationwide/route-paths.json
+DATABASE_URL=... .venv/Scripts/python scripts/data-pipeline/load_postgres.py --curated-only   # 코스 방문지만 DB 반영
+```
 
 CSV 에 담기 어려운 전국 데이터는 DB 에서 **지금 보이는 지도 범위만** 받아 옵니다. 줌이 낮으면 서버가 격자로 묶은 클러스터를, 화면 안이 1,500곳 이하면 개별 장소를 보냅니다. 목록은 화면 중심에서 가까운 100곳입니다.
 
