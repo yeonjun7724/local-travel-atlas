@@ -12,7 +12,10 @@ import type { BBox } from "@/lib/geo";
 import type { Category, Place } from "@/lib/validation/schemas";
 import { PlaceMarkerContent } from "./PlaceMarker";
 
-export type MapCommand = { type: "zoomIn" | "zoomOut"; seq: number } | null;
+export type MapCommand =
+  | { type: "zoomIn" | "zoomOut"; seq: number }
+  | { type: "flyTo"; center: [number, number]; zoom?: number; seq: number }
+  | null;
 
 export interface MapViewProps {
   /** 지도에 표시할 장소(필터 결과). 코스가 선택되면 무시하고 routeStops 를 표시 */
@@ -399,7 +402,8 @@ export default function MapView(props: MapViewProps) {
     const map = mapRef.current;
     if (!map || !command) return;
     if (command.type === "zoomIn") map.zoomIn({ duration: motion(250) });
-    else map.zoomOut({ duration: motion(250) });
+    else if (command.type === "zoomOut") map.zoomOut({ duration: motion(250) });
+    else if (command.type === "flyTo") map.flyTo({ center: command.center, zoom: command.zoom ?? map.getZoom(), bearing: 0, pitch: 0, duration: motion(900) });
   }, [command]);
 
   // ── 내 위치 ───────────────────────────────────────────────────────────────

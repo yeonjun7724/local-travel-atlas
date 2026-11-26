@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowUpDown, Heart, RefreshCw, Share2, X } from "lucide-react";
+import { ArrowUpDown, Bot, Heart, RefreshCw, Share2, X } from "lucide-react";
+import { ChatPanel } from "@/components/ai/ChatPanel";
 import { siteConfig } from "@/config/site";
 import { useI18n } from "@/components/common/I18nProvider";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -71,8 +72,18 @@ function useOnline(): boolean {
   );
 }
 
-export default function AtlasApp({ data, routingEnabled, remote = false }: { data: AtlasData; routingEnabled: boolean; remote?: boolean }) {
-  const { t, lang } = useI18n();
+export default function AtlasApp({
+  data,
+  routingEnabled,
+  aiEnabled = false,
+  remote = false,
+}: {
+  data: AtlasData;
+  routingEnabled: boolean;
+  aiEnabled?: boolean;
+  remote?: boolean;
+}) {
+  const { t, lang, setLang } = useI18n();
   const isDesktop = useIsDesktop();
   const online = useOnline();
   const { favorites, isFavorite, toggle: toggleFavorite } = useFavorites();
@@ -119,6 +130,9 @@ export default function AtlasApp({ data, routingEnabled, remote = false }: { dat
   const [walk, setWalk] = useState<{ key: string; state: WalkState }>({ key: "", state: { status: "idle" } });
   const requestRef = useRef(0);
   const mainRef = useRef<HTMLElement>(null);
+  /** 오른쪽 ChatGPT 패널 (OPENAI_API_KEY 가 있을 때만) */
+  const [aiOpenPref, setAiOpen] = useState<boolean | null>(null);
+  const aiOpen = aiOpenPref ?? isDesktop; // 기본: 데스크톱은 열림, 모바일은 닫힘
 
   // ── 파생 데이터 ────────────────────────────────────────────────────────────
   const isMyRoute = routeId === MY_ROUTE_ID;
@@ -552,6 +566,7 @@ export default function AtlasApp({ data, routingEnabled, remote = false }: { dat
   };
 
   const zoom = (type: "zoomIn" | "zoomOut") => setCommand((c) => ({ type, seq: (c?.seq ?? 0) + 1 }));
+  const flyTo = (center: LngLat, z?: number) => setCommand((c) => ({ type: "flyTo", center, zoom: z, seq: (c?.seq ?? 0) + 1 }));
 
   const nameOf = useCallback((p: AtlasData["places"][number]) => localizePlace(p, lang).name, [lang]);
   const mapLabels = useMemo(
@@ -577,6 +592,192 @@ export default function AtlasApp({ data, routingEnabled, remote = false }: { dat
     route: isMyRoute ? t("my.title") : activeRoute ? localizeRoute(activeRoute, lang).title : undefined,
     place: selectedPlace ? localizePlace(selectedPlace, lang).name : undefined,
   };
+
+  // ── ChatGPT 도우미: 화면 상태 요약 + 도구 실행 ─────────────────────────────────
+  const r5 = (n: number) => Math.round(n * 1e5) / 1e5;
+  const briefPlace = (p: Place) => ({
+    id: p.id,
+    name: p.nameKo,
+    category: p.category,
+    subtype: p.subtype || undefined,
+    distanceM: Math.round(haversineMeters(origin, [p.longitude, p.latitude])),
+  });
+  const buildAiState = () => ({
+    mode: remote ? "nationwide" : "local",
+    region: remote ? "전국 (첫 화면: 서울 양재역 일대)" : `${siteConfig.region.nameKo} [${siteConfig.region.center.join(", ")}]`,
+    language: lang,
+    tab,
+    filters: { query, category, subtype, favoritesOnly: favOnly, sort: sortKey },
+    map: viewBounds ? { center: bboxCenter(viewBounds).map(r5), zoom: Math.round(viewZoom * 10) / 10, bbox: viewBounds.map(r5) } : null,
+    distanceOrigin: userLocation ? "user_location" : "map_center",
+    categories: data.categories.map((c) => ({ id: c.id, label: c.labelKo })),
+    subtypes: subtypes.slice(0, 12).map((s) => s.subtype),
+    results: { total: resultTotal, top: listed.slice(0, 15).map(briefPlace) },
+    selectedPlace: selectedPlace
+      ? {
+          ...briefPlace(selectedPlace),
+          address: selectedPlace.address,
+          hours: selectedPlace.openingHours || undefined,
+          tags: selectedPlace.tags,
+          description: selectedPlace.descriptionKo.slice(0, 300),
+        }
+      : null,
+    activeRoute: isMyRoute ? "my-route" : activeRoute ? { id: activeRoute.routeId, title: activeRoute.titleKo, stops: (routeStops ?? []).map(briefPlace) } : null,
+    routes: data.routes.map((r) => ({ id: r.routeId, title: r.titleKo, theme: r.theme, stops: r.placeIds.length, mode: r.transportMode })),
+    myRoute: {
+      stops: myStopPlaces.map(briefPlace),
+      walk: myWalk ? { distanceM: Math.round(myWalk.totalDistanceM), durationMin: Math.round(myWalk.totalDurationS / 60) } : walkState.status,
+    },
+    favoritesCount: favorites.length,
+  });
+
+  const aiRef = useRef<{ state: () => unknown; loading: boolean; searchArea: () => void } | null>(null);
+  const aiToolRef = useRef<(name: string, args: Record<string, unknown>) => Promise<string>>(async () => "{}");
+  const runAiTool = useCallback((name: string, args: Record<string, unknown>) => aiToolRef.current(name, args), []);
+  const getAiState = useCallback(() => JSON.stringify(aiRef.current?.state() ?? {}), []);
+
+  const aiTool = async (name: string, a: Record<string, unknown>): Promise<string> => {
+    const fail = (error: string) => JSON.stringify({ ok: false, error });
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+    const known = (id: string) => placesById.has(id) || (remote && /^[a-z0-9-]{1,64}$/.test(id));
+    /** 화면 반영 대기(ms): 지도 이동 애니메이션·서버 조회가 끝날 때까지 */
+    let wait = 350;
+    let followArea = false;
+    switch (name) {
+      case "get_state":
+        wait = 0;
+        break;
+      case "search_places": {
+        const cat = str(a.category);
+        if (cat && !catById.has(cat)) return fail(`unknown category: ${cat}`);
+        const q = (str(a.query) ?? "").slice(0, 60);
+        setQuery(q);
+        setCategory(cat);
+        setSubtype(cat ? str(a.subtype) : null);
+        setFavOnly(false);
+        applyFilterChange();
+        wait = remote && q ? 2200 : 1000;
+        break;
+      }
+      case "reset_filters":
+        resetFilters();
+        wait = 1000;
+        break;
+      case "select_place": {
+        const id = str(a.placeId);
+        if (!id || !known(id)) return fail(`unknown placeId: ${id}`);
+        // 추천 코스 보기 중이거나 필터에 걸려 지도에 없는 장소면 장소 탐색으로 돌아가 필터를 풉니다
+        if (routeStops && !isMyRoute && !routeStops.some((p) => p.id === id)) {
+          setTab("places");
+          setRouteId(null);
+        }
+        if (!remote && !filtered.some((p) => p.id === id)) {
+          setQuery("");
+          setCategory(null);
+          setSubtype(null);
+          setFavOnly(false);
+          setStackIds(null);
+        }
+        selectPlace(id);
+        wait = 1000;
+        break;
+      }
+      case "close_place":
+        closeDetail();
+        break;
+      case "fly_to": {
+        const lng = Number(a.lng);
+        const lat = Number(a.lat);
+        if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) return fail("invalid coordinates");
+        const z = a.zoom === undefined ? undefined : Math.min(19, Math.max(5, Number(a.zoom) || 15));
+        setStackIds(null);
+        flyTo([lng, lat], z);
+        wait = remote ? 1800 : 1200;
+        followArea = !remote;
+        break;
+      }
+      case "zoom":
+        zoom(a.direction === "out" ? "zoomOut" : "zoomIn");
+        wait = remote ? 1200 : 500;
+        break;
+      case "show_tab":
+        changeTab(a.tab === "routes" ? "routes" : "places");
+        wait = 800;
+        break;
+      case "open_route": {
+        const id = str(a.routeId);
+        if (!id || !data.routes.some((r) => r.routeId === id)) return fail(`unknown routeId: ${id}`);
+        selectRoute(id);
+        wait = 1000;
+        break;
+      }
+      case "my_route": {
+        const ids = Array.isArray(a.placeIds) ? a.placeIds.filter((x): x is string => typeof x === "string") : [];
+        switch (a.action) {
+          case "add": {
+            const bad = ids.filter((id) => !known(id));
+            if (!ids.length || bad.length) return fail(bad.length ? `unknown placeIds: ${bad.join(",")}` : "placeIds required");
+            const next = [...myRoute.stops, ...ids.filter((id) => !myRoute.stops.includes(id))];
+            if (next.length > MY_ROUTE_MAX) return fail(`my route is limited to ${MY_ROUTE_MAX} stops`);
+            myRoute.replace(next);
+            break;
+          }
+          case "remove":
+            myRoute.replace(myRoute.stops.filter((id) => !ids.includes(id)));
+            break;
+          case "clear":
+            myRoute.clear();
+            break;
+          case "optimize":
+            optimizeMyRoute();
+            break;
+          case "open":
+            openMyRoute();
+            wait = 1500;
+            break;
+          default:
+            return fail("unknown action");
+        }
+        break;
+      }
+      case "favorites": {
+        const id = str(a.placeId);
+        if (a.action === "add" || a.action === "remove") {
+          if (!id || !known(id)) return fail(`unknown placeId: ${id}`);
+          if (isFavorite(id) !== (a.action === "add")) toggleFavorite(id);
+        } else if (a.action === "show" || a.action === "hide") {
+          if (favOnly !== (a.action === "show")) toggleFavOnly();
+          wait = 1000;
+        } else return fail("unknown action");
+        break;
+      }
+      case "set_sort":
+        if (a.key !== "distance" && a.key !== "name" && a.key !== "recommended") return fail("invalid sort key");
+        setSortKey(a.key);
+        break;
+      case "set_language":
+        if (a.lang !== "ko" && a.lang !== "en") return fail("invalid language");
+        setLang(a.lang);
+        break;
+      default:
+        return fail(`unknown tool: ${name}`);
+    }
+    if (wait) {
+      await new Promise((r) => window.setTimeout(r, wait));
+      // 동네 모드: 옮긴 화면을 목록 영역으로 삼아 '이 지역 다시 찾기'와 같은 결과를 돌려줍니다
+      if (followArea) {
+        aiRef.current?.searchArea();
+        await new Promise((r) => window.setTimeout(r, 100));
+      }
+      const until = Date.now() + 4000;
+      while (aiRef.current?.loading && Date.now() < until) await new Promise((r) => window.setTimeout(r, 150));
+    }
+    return JSON.stringify({ ok: true, state: aiRef.current?.state() });
+  };
+  useEffect(() => {
+    aiRef.current = { state: buildAiState, loading: remoteView.loading, searchArea: searchThisArea };
+    aiToolRef.current = aiTool;
+  });
 
   // ── 패널 조각 ──────────────────────────────────────────────────────────────
   const placeRoutes = selectedPlace ? data.routes.filter((r) => r.placeIds.includes(selectedPlace.id)) : [];
@@ -851,7 +1052,13 @@ export default function AtlasApp({ data, routingEnabled, remote = false }: { dat
         {isDesktop && (
           <>
             <div className="pointer-events-none absolute inset-x-0 top-4 z-10 flex justify-center">{areaButton}</div>
-            <div className="absolute right-4 top-4 z-10">
+            <div className="absolute right-4 top-4 z-10 flex gap-2">
+              {aiEnabled && !aiOpen && (
+                <button type="button" onClick={() => setAiOpen(true)} data-testid="ai-open" className="btn btn-primary shadow-[var(--shadow-float)]">
+                  <Bot aria-hidden="true" className="size-4" />
+                  <span>{t("ai.open")}</span>
+                </button>
+              )}
               <button type="button" onClick={() => openShare()} data-testid="share-button" aria-label={t("header.share")} className="btn btn-accent shadow-[var(--shadow-float)]">
                 <Share2 aria-hidden="true" className="size-4" />
                 <span>{t("header.share")}</span>
@@ -868,6 +1075,11 @@ export default function AtlasApp({ data, routingEnabled, remote = false }: { dat
                 <BrandMark nationwide={remote} />
               </div>
               <LanguageSwitcher />
+              {aiEnabled && (
+                <button type="button" onClick={() => setAiOpen(!aiOpen)} aria-pressed={aiOpen} data-testid="ai-open" aria-label={t("ai.open")} className="btn btn-primary !px-3">
+                  <Bot aria-hidden="true" className="size-4" />
+                </button>
+              )}
               <button type="button" onClick={() => openShare()} data-testid="share-button" aria-label={t("header.share")} className="btn btn-accent !px-3">
                 <Share2 aria-hidden="true" className="size-4" />
               </button>
@@ -910,7 +1122,23 @@ export default function AtlasApp({ data, routingEnabled, remote = false }: { dat
             {panelBody}
           </MobileBottomSheet>
         )}
+
+        {/* 모바일: ChatGPT 패널은 아래쪽 절반을 덮어 지도 위쪽은 계속 보이게 */}
+        {aiEnabled && aiOpen && !isDesktop && (
+          <ChatPanel
+            runTool={runAiTool}
+            getState={getAiState}
+            onClose={() => setAiOpen(false)}
+            className="absolute inset-x-0 bottom-0 z-40 h-[55%] rounded-t-[var(--radius-card)] shadow-[var(--shadow-float)]"
+          />
+        )}
       </main>
+
+      {aiEnabled && aiOpen && isDesktop && (
+        <aside aria-label={t("ai.title")} className="z-10 flex w-[22rem] shrink-0 flex-col border-l border-[var(--color-line)] lg:w-[24rem]">
+          <ChatPanel runTool={runAiTool} getState={getAiState} onClose={() => setAiOpen(false)} className="h-full" />
+        </aside>
+      )}
 
       <ShareDialog
         open={shareOpen}

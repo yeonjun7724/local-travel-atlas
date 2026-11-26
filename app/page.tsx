@@ -8,7 +8,8 @@ import AtlasApp from "@/components/AtlasApp";
 export default function Page() {
   const data = loadAtlasData();
   const routingEnabled = Boolean(process.env.ORS_API_KEY);
-  if (!remoteEnabled()) return <AtlasApp data={data} routingEnabled={routingEnabled} />;
+  const aiEnabled = Boolean(process.env.OPENAI_API_KEY);
+  if (!remoteEnabled()) return <AtlasApp data={data} routingEnabled={routingEnabled} aiEnabled={aiEnabled} />;
 
   const nw = loadNationwideRoutes();
   const routes = [...nw.routes, ...data.routes];
@@ -18,5 +19,5 @@ export default function Page() {
     data.routePaths || nw.routePaths
       ? { ...(nw.routePaths ?? data.routePaths)!, routes: { ...nw.routePaths?.routes, ...data.routePaths?.routes } }
       : null;
-  return <AtlasApp data={{ ...data, places, routes, routePaths }} routingEnabled={routingEnabled} remote />;
+  return <AtlasApp data={{ ...data, places, routes, routePaths }} routingEnabled={routingEnabled} aiEnabled={aiEnabled} remote />;
 }

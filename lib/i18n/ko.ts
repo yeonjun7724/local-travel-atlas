@@ -172,6 +172,20 @@ export const ko = {
   "results.nearest": "가까운 순 {n}곳 표시",
   "results.zoomHint": "확대하면 더 정확한 목록과 핀을 볼 수 있어요",
   "data.footerNationwide": "장소 © 소상공인시장진흥공단 상가(상권)정보(전국 음식점·카페) · OpenStreetMap 기여자(ODbL) · Wikidata · 위키백과 · 사진 Wikimedia Commons",
+  "ai.title": "ChatGPT 지도 도우미",
+  "ai.open": "ChatGPT",
+  "ai.close": "도우미 닫기",
+  "ai.reset": "새 대화",
+  "ai.intro": "말로 지도를 움직여 보세요. 검색·필터, 장소 열기, 지도 이동, 추천 코스·내 코스 구성까지 대신 해 드려요.",
+  "ai.suggest1": "근처 카페 보여 줘",
+  "ai.suggest2": "추천 코스 하나 열어 줘",
+  "ai.suggest3": "목록 위 3곳으로 내 코스 만들어 줘",
+  "ai.placeholder": "무엇을 도와드릴까요?",
+  "ai.send": "보내기",
+  "ai.thinking": "지도를 조작하는 중…",
+  "ai.failed": "응답을 받지 못했어요. 잠시 후 다시 시도해 주세요.",
+  "ai.rateLimited": "요청이 많아요. 잠시 후 다시 시도해 주세요.",
+  "ai.notConfigured": "서버에 OPENAI_API_KEY 가 설정되지 않았습니다.",
 } as const;
 
 export type MessageKey = keyof typeof ko;
